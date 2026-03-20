@@ -1,0 +1,16 @@
+{
+  "name": "NSE Pulse Pro — Institutional Terminal",
+  "short_name": "Pulse Pro",
+  "description": "Institutional-grade NSE market terminal by Kanishk Arora",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#06080F",
+  "theme_color": "#06080F",
+  "icons": [
+    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ],
+  "categories": ["finance", "business"],
+  "lang": "en"
+}

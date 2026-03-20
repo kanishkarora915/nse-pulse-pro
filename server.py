@@ -393,6 +393,21 @@ class IndexPage(tornado.web.RequestHandler):
         with open(os.path.join(DIR,"nse_terminal_pro.html"),"r",encoding="utf-8") as f:
             self.write(f.read())
 
+class StaticFileHandler(tornado.web.RequestHandler):
+    """Serve PWA static files"""
+    MIME = {".json":"application/json",".js":"application/javascript",".png":"image/png",".ico":"image/x-icon"}
+    def get(self, path):
+        fpath = os.path.join(DIR, path)
+        if not os.path.isfile(fpath):
+            self.set_status(404); self.write("Not found"); return
+        ext = os.path.splitext(path)[1]
+        self.set_header("Content-Type", self.MIME.get(ext, "application/octet-stream"))
+        if ext == ".png":
+            self.set_header("Cache-Control", "public, max-age=86400")
+            with open(fpath, "rb") as f: self.write(f.read())
+        else:
+            with open(fpath, "r", encoding="utf-8") as f: self.write(f.read())
+
 # ── Auth (Multi-User) ────────────────────────────────────
 
 class AuthHandler(Base):
@@ -1032,6 +1047,10 @@ class IndexConstituentsHandler(Base):
 def make_app():
     return tornado.web.Application([
         (r"/", IndexPage),
+        (r"/(manifest\.json)", StaticFileHandler),
+        (r"/(sw\.js)", StaticFileHandler),
+        (r"/(icon-192\.png)", StaticFileHandler),
+        (r"/(icon-512\.png)", StaticFileHandler),
         (r"/callback", CallbackHandler),
         (r"/api/auth", AuthHandler),
         (r"/api/login", LoginRedirect),
