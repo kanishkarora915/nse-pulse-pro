@@ -1833,11 +1833,7 @@ async function loadSignals(){
 async function loadAILab(isAutoRefresh){
   const signal = getAbortSignal('ailab');
   try{
-    const [aiData, indices, breadth] = await Promise.all([
-      apiGet('/aianalysis', { signal, ttl: 5000 }),
-      apiGet('/indices', { signal, ttl: 5000 }),
-      api('/breadth', {symbols: INDICES.NIFTY50}, { signal, ttl: 5000 })
-    ]);
+    const ai = await api('/aianalysis', {}, { signal, ttl: 5000 });
     clearAbort('ailab');
     tabLoaded.ailab = true;
 
@@ -1845,12 +1841,11 @@ async function loadAILab(isAutoRefresh){
     ailabCountdown = 10;
 
     // ── A) Live Index Ticker Strip ──
-    const idxData = indices.data || indices;
+    const idxData = ai.indices || {};
     let tickerHtml = '';
-    for(const [key, info] of Object.entries(idxData)){
-      const name = key.replace('NSE:','');
+    for(const [name, info] of Object.entries(idxData)){
       const ltp = info.last_price || 0;
-      const chgPct = info.ohlc ? ((ltp - info.ohlc.close)/info.ohlc.close*100) : 0;
+      const chgPct = info.change_pct || 0;
       const cls = chgPct >= 0 ? 'up' : 'dn';
       tickerHtml += `<div class="index-ticker">
         <span class="idx-name">${name}</span>
@@ -1859,23 +1854,29 @@ async function loadAILab(isAutoRefresh){
       </div>`;
     }
     // Duplicate for seamless scroll
-    document.getElementById('ailab-ticker-inner').innerHTML = tickerHtml + tickerHtml;
+    if(tickerHtml) document.getElementById('ailab-ticker-inner').innerHTML = tickerHtml + tickerHtml;
 
     // ── B) Options Analysis ──
-    const ai = aiData || {};
     const niftyOpts = ai.niftyOptions || {};
     const bnOpts = ai.bankniftyOptions || {};
     renderOptionsAnalysis('ailab-nifty-opts-content', 'NIFTY', niftyOpts);
     renderOptionsAnalysis('ailab-bn-opts-content', 'BANKNIFTY', bnOpts);
 
     // ── C) AI Predictions ──
-    const risers = ai.likelyToRise || [];
-    const fallers = ai.likelyToFall || [];
+    const preds = ai.predictions || {};
+    const risers = (preds.likely_to_rise || []).map(s => ({
+      symbol: s.symbol, ltp: s.ltp, confidence: Math.min(Math.abs(s.predictionScore||0)*2, 100).toFixed(0),
+      reason: (s.reasons||[]).join(', ') || 'mathematical analysis'
+    }));
+    const fallers = (preds.likely_to_fall || []).map(s => ({
+      symbol: s.symbol, ltp: s.ltp, confidence: Math.min(Math.abs(s.predictionScore||0)*2, 100).toFixed(0),
+      reason: (s.reasons||[]).join(', ') || 'mathematical analysis'
+    }));
     renderPredictionTable('ailab-rise-content', risers, 'up');
     renderPredictionTable('ailab-fall-content', fallers, 'dn');
 
     // ── D) Pre-Market Positive ──
-    const premarket = ai.premarketPositive || [];
+    const premarket = ai.preMarketPositive || [];
     if(premarket.length){
       let pillsHtml = '';
       for(const s of premarket){
@@ -1887,23 +1888,37 @@ async function loadAILab(isAutoRefresh){
     }
 
     // ── E) Gold vs Nifty Chart ──
-    const goldData = ai.goldPerformance || [];
-    const niftyPerfData = ai.niftyPerformance || [];
+    const gvn = ai.goldVsNifty || {};
+    const goldData = gvn.gold || [];
+    const niftyPerfData = gvn.nifty || [];
     renderGoldNiftyChart(goldData, niftyPerfData);
 
     // ── F) Real-Time Signals ──
-    const signals = ai.signals || [];
-    renderAISignals(signals);
+    const rawSignals = ai.signals || [];
+    const now = new Date();
+    const mappedSignals = rawSignals.map((s,i) => {
+      const iconMap = {bullish:'📈', bearish:'📉', warning:'⚠️', strong_buy:'💎'};
+      const typeMap = {bullish:'bull', bearish:'bear', warning:'warn', strong_buy:'bull'};
+      const d = new Date(now - i*60000);
+      return {
+        icon: iconMap[s.type] || '📊',
+        text: s.signal + (s.detail ? ' — ' + s.detail : ''),
+        type: typeMap[s.type] || 'warn',
+        time: d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false})
+      };
+    });
+    renderAISignals(mappedSignals);
 
     // ── G) Market Internals ──
-    const internals = ai.internals || {};
-    const bData = breadth || {};
-    const advances = internals.advances || bData.advances || 0;
-    const declines = internals.declines || bData.declines || 0;
-    const adRatio = declines > 0 ? (advances/declines).toFixed(2) : 'N/A';
-    const totalVol = internals.totalVolume || bData.totalVolume || 0;
-    const avgChg = internals.avgChange != null ? internals.avgChange : (bData.avgChange || 0);
-    const vixLevel = internals.vix || ai.vix || 0;
+    const mi = ai.marketInternals || {};
+    const advances = mi.advances || 0;
+    const declines = mi.declines || 0;
+    const adRatio = mi.adRatio || (declines > 0 ? (advances/declines).toFixed(2) : 'N/A');
+    const totalVol = mi.totalVolume || 0;
+    const avgChg = mi.avgChange || 0;
+    // Get VIX from indices
+    const vixInfo = idxData['INDIA VIX'] || {};
+    const vixLevel = vixInfo.last_price || 0;
 
     document.getElementById('ailab-internals-content').innerHTML = `
       <div class="internal-stat"><div class="int-label">Advances</div><div class="int-value up">${advances}</div></div>
@@ -1911,7 +1926,8 @@ async function loadAILab(isAutoRefresh){
       <div class="internal-stat"><div class="int-label">A/D Ratio</div><div class="int-value mono">${adRatio}</div></div>
       <div class="internal-stat"><div class="int-label">Total Volume</div><div class="int-value mono">${fmtLakh(totalVol)}</div></div>
       <div class="internal-stat"><div class="int-label">Avg Change</div><div class="int-value mono ${avgChg>=0?'up':'dn'}">${avgChg>=0?'+':''}${fmt(avgChg)}%</div></div>
-      <div class="internal-stat"><div class="int-label">India VIX</div><div class="int-value mono ${vixLevel>20?'dn':'up'}">${fmt(vixLevel,2)}</div></div>`;
+      <div class="internal-stat"><div class="int-label">India VIX</div><div class="int-value mono ${vixLevel>20?'dn':'up'}">${fmt(vixLevel,2)}</div></div>
+      <div class="internal-stat"><div class="int-label">Market B/S</div><div class="int-value mono ${(mi.marketBSRatio||1)>1?'up':'dn'}">${fmt(mi.marketBSRatio||0)}</div></div>`;
 
   }catch(e){
     if (e.message === 'Request cancelled') return;
@@ -1923,12 +1939,18 @@ async function loadAILab(isAutoRefresh){
 
 function renderOptionsAnalysis(containerId, label, data){
   const el = document.getElementById(containerId);
-  const putBuyers = data.putBuyers || 0;
-  const callBuyers = data.callBuyers || 0;
-  const putSellers = data.putSellers || 0;
-  const callSellers = data.callSellers || 0;
+  if(!data || (!data.totalCEBuyQty && !data.totalPEBuyQty && !data.pcr)){
+    el.innerHTML = '<div class="dim" style="padding:12px">Options data not available (market may be closed)</div>';
+    return;
+  }
+  const putBuyers = data.totalPEBuyQty || 0;
+  const callBuyers = data.totalCEBuyQty || 0;
+  const putSellers = data.totalPESellQty || 0;
+  const callSellers = data.totalCESellQty || 0;
   const pcr = data.pcr || 0;
   const maxPain = data.maxPain || '—';
+  const netCEOI = data.netCEOI || 0;
+  const netPEOI = data.netPEOI || 0;
   const maxBuyer = Math.max(putBuyers, callBuyers, 1);
   const maxSeller = Math.max(putSellers, callSellers, 1);
 
@@ -1955,30 +1977,34 @@ function renderOptionsAnalysis(containerId, label, data){
         <div class="bar-label">CE ${fmtLakh(callSellers)}</div>
       </div>
     </div>
-    <div style="display:flex;gap:16px;margin-top:8px">
+    <div style="display:flex;gap:16px;margin-top:8px;flex-wrap:wrap">
       <div><span style="font-size:.68rem;color:var(--text3);font-weight:600">PCR</span>
         <div class="mono" style="font-size:1.4rem;font-weight:800;color:${pcr>1?'var(--green)':'var(--red)'}">${fmt(pcr,3)}</div></div>
       <div><span style="font-size:.68rem;color:var(--text3);font-weight:600">MAX PAIN</span>
         <div class="mono" style="font-size:1.4rem;font-weight:800;color:var(--accent2)">${maxPain}</div></div>
+      <div><span style="font-size:.68rem;color:var(--text3);font-weight:600">CE OI</span>
+        <div class="mono" style="font-size:.9rem;font-weight:700;color:var(--red)">${fmtLakh(netCEOI)}</div></div>
+      <div><span style="font-size:.68rem;color:var(--text3);font-weight:600">PE OI</span>
+        <div class="mono" style="font-size:.9rem;font-weight:700;color:var(--green)">${fmtLakh(netPEOI)}</div></div>
     </div>`;
 }
 
 function renderPredictionTable(containerId, stocks, direction){
   const el = document.getElementById(containerId);
-  if(!stocks.length){
-    el.innerHTML = '<div class="dim" style="padding:8px">No predictions available</div>';
+  if(!stocks || !stocks.length){
+    el.innerHTML = '<div class="dim" style="padding:12px">No strong predictions right now — market may be stable or closed</div>';
     return;
   }
   let html = '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>Confidence</th><th>Reason</th></tr></thead><tbody>';
-  for(const s of stocks){
-    const conf = s.confidence || 0;
+  for(const s of stocks.slice(0, 15)){
+    const conf = parseInt(s.confidence) || 0;
     const confCls = conf >= 70 ? 'high' : conf >= 40 ? 'medium' : 'low';
     html += `<tr>
-      <td style="font-weight:700">${s.symbol}</td>
+      <td style="font-weight:700">${s.symbol||'—'}</td>
       <td class="mono">${fmt(s.ltp)}</td>
       <td style="min-width:120px">
         <div style="display:flex;align-items:center;gap:6px">
-          <div class="confidence-bar" style="flex:1"><div class="conf-fill ${confCls}" style="width:${conf}%"></div></div>
+          <div class="confidence-bar" style="flex:1"><div class="conf-fill ${confCls}" style="width:${Math.min(conf,100)}%"></div></div>
           <span class="mono" style="font-size:.7rem;font-weight:700;color:var(--text2)">${conf}%</span>
         </div>
       </td>
@@ -2017,20 +2043,16 @@ function renderGoldNiftyChart(goldData, niftyData){
 
 function renderAISignals(signals){
   const el = document.getElementById('ailab-signals-content');
-  if(!signals.length){
-    // Generate default signals from market data
-    const now = new Date();
-    const timeStr = t => {
-      const d = new Date(now - t*60000);
-      return d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false});
-    };
+  const now = new Date();
+  const timeStr = t => {
+    const d = new Date(now - t*60000);
+    return d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false});
+  };
+  if(!signals || !signals.length){
+    // Show market status when no signals
     signals = [
-      {type:'bull', icon:'📈', text:'NIFTY holding above key support level', time: timeStr(1)},
-      {type:'warn', icon:'⚠️', text:'VIX elevated — expect higher volatility', time: timeStr(3)},
-      {type:'bull', icon:'💰', text:'FII net buyers in cash segment', time: timeStr(5)},
-      {type:'bear', icon:'📉', text:'BANKNIFTY approaching resistance zone', time: timeStr(8)},
-      {type:'bull', icon:'🔄', text:'Positive breadth — advances leading declines', time: timeStr(12)},
-      {type:'warn', icon:'🔔', text:'Options PCR shifting — watch for reversal', time: timeStr(15)},
+      {type:'warn', icon:'📊', text:'Market analysis running — no strong signals detected', time: timeStr(0)},
+      {type:'warn', icon:'🔄', text:'Monitoring continuously — signals will appear when conditions align', time: timeStr(1)},
     ];
   }
   let html = '';
@@ -2038,8 +2060,8 @@ function renderAISignals(signals){
     const cls = s.type === 'bull' ? 'sig-bull' : s.type === 'bear' ? 'sig-bear' : 'sig-warn';
     html += `<div class="sig-item">
       <span class="sig-icon">${s.icon || '📊'}</span>
-      <span class="sig-text ${cls}">${s.text}</span>
-      <span class="sig-time">${s.time || '—'}</span>
+      <span class="sig-text ${cls}">${s.text || s.signal || ''}</span>
+      <span class="sig-time">${s.time || timeStr(0)}</span>
     </div>`;
   }
   el.innerHTML = html;

@@ -1329,14 +1329,25 @@ class AIAnalysisHandler(Base):
         def fetch_gold_vs_nifty(session):
             to_date = datetime.now().strftime("%Y-%m-%d")
             from_date = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
-            nifty_candles, _ = fetch_historical_for(session, "NIFTY 50", from_date, to_date)
-            gold_candles, _ = fetch_historical_for(session, "GOLDBEES", from_date, to_date)
             result = {"dates": [], "nifty": [], "gold": []}
+            # NIFTY 50 is index (token 256265), GOLDBEES is NSE equity
+            nifty_token = 256265  # NIFTY 50 index token
+            try:
+                r = requests.get(
+                    f"{KITE}/instruments/historical/{nifty_token}/day",
+                    params={"from": f"{from_date} 09:15:00", "to": f"{to_date} 15:30:00"},
+                    headers=kh_for(session), timeout=15)
+                r.raise_for_status()
+                nifty_candles = r.json().get("data", {}).get("candles", [])
+            except:
+                nifty_candles = []
+            gold_candles, _ = fetch_historical_for(session, "GOLDBEES", from_date, to_date)
+            if not gold_candles:
+                gold_candles = []
             if nifty_candles and gold_candles:
-                # Trim to 30 most recent days max
                 nc = nifty_candles[-30:]
                 gc = gold_candles[-30:]
-                n_base = nc[0][4] if nc else 1  # close price
+                n_base = nc[0][4] if nc else 1
                 g_base = gc[0][4] if gc else 1
                 min_len = min(len(nc), len(gc))
                 for i in range(min_len):
