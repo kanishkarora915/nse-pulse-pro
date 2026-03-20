@@ -40,6 +40,19 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg)
 input,select,button{font-family:inherit}
 a{color:var(--accent2);text-decoration:none}
 
+/* ── PROGRESS BAR ── */
+#progress-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--cyan),var(--accent2));
+  z-index:9999;width:0;opacity:0;transition:opacity .2s;pointer-events:none}
+#progress-bar.active{opacity:1;animation:progressAnim 2.5s ease-in-out infinite}
+@keyframes progressAnim{
+  0%{width:0}
+  20%{width:30%}
+  50%{width:60%}
+  80%{width:85%}
+  100%{width:95%}
+}
+#progress-bar.done{width:100%!important;animation:none;transition:width .2s,opacity .3s .2s;opacity:0}
+
 /* ── AUTH ── */
 #auth{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;
   background:var(--bg);background-image:
@@ -168,6 +181,8 @@ a{color:var(--accent2);text-decoration:none}
   border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-text{margin-top:12px;font-size:.8rem;font-weight:500}
+.loading-pct{margin-top:6px;font-size:1.1rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--accent2)}
+.loading-sub{margin-top:8px;font-size:.7rem;color:var(--text4);font-weight:500}
 
 /* Sparkline */
 .sparkline{width:80px;height:28px;display:inline-block;vertical-align:middle}
@@ -195,6 +210,9 @@ a{color:var(--accent2);text-decoration:none}
 </style>
 </head>
 <body>
+
+<!-- ── Progress Bar ── -->
+<div id="progress-bar"></div>
 
 <!-- ═══ AUTH SCREEN ═══ -->
 <div id="auth">
@@ -479,12 +497,130 @@ let smartMoneyData = null;
 let sortState = {};
 
 // ═══════════════════════════════════════════════════════════
-//  HELPERS
+//  PERFORMANCE: Progress Bar
 // ═══════════════════════════════════════════════════════════
-function api(ep, body) {
-  return fetch('/api'+ep, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}).then(r=>r.json());
+const progressBar = document.getElementById('progress-bar');
+let activeRequests = 0;
+
+function progressStart() {
+  activeRequests++;
+  progressBar.classList.remove('done');
+  progressBar.classList.add('active');
 }
-function apiGet(ep) { return fetch('/api'+ep).then(r=>r.json()); }
+function progressEnd() {
+  activeRequests = Math.max(0, activeRequests - 1);
+  if (activeRequests === 0) {
+    progressBar.classList.remove('active');
+    progressBar.classList.add('done');
+    setTimeout(() => { progressBar.classList.remove('done'); }, 500);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PERFORMANCE: Request Cache (15-30s TTL)
+// ═══════════════════════════════════════════════════════════
+const apiCache = new Map();
+const CACHE_TTL_SHORT = 15000; // 15s for live data
+const CACHE_TTL_LONG = 30000;  // 30s for historical/computed data
+
+function cacheKey(ep, body) {
+  return ep + '|' + (body ? JSON.stringify(body) : '');
+}
+
+function cacheGet(key) {
+  const entry = apiCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > entry.ttl) {
+    apiCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function cacheSet(key, data, ttl) {
+  apiCache.set(key, { data, ts: Date.now(), ttl });
+  // Evict old entries if cache grows too large
+  if (apiCache.size > 50) {
+    const now = Date.now();
+    for (const [k, v] of apiCache) {
+      if (now - v.ts > v.ttl) apiCache.delete(k);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PERFORMANCE: AbortController for in-flight requests
+// ═══════════════════════════════════════════════════════════
+const abortControllers = new Map(); // tab -> AbortController
+
+function getAbortSignal(tab) {
+  // Cancel any previous in-flight request for this tab
+  if (abortControllers.has(tab)) {
+    abortControllers.get(tab).abort();
+  }
+  const controller = new AbortController();
+  abortControllers.set(tab, controller);
+  return controller.signal;
+}
+
+function clearAbort(tab) {
+  abortControllers.delete(tab);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HELPERS (cached + abort-aware)
+// ═══════════════════════════════════════════════════════════
+function api(ep, body, opts = {}) {
+  const key = cacheKey(ep, body);
+  const cached = cacheGet(key);
+  if (cached) return Promise.resolve(cached);
+
+  progressStart();
+  const ttl = opts.ttl || CACHE_TTL_SHORT;
+  const fetchOpts = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  };
+  if (opts.signal) fetchOpts.signal = opts.signal;
+
+  return fetch('/api' + ep, fetchOpts)
+    .then(r => r.json())
+    .then(data => {
+      cacheSet(key, data, ttl);
+      progressEnd();
+      return data;
+    })
+    .catch(e => {
+      progressEnd();
+      if (e.name === 'AbortError') throw new Error('Request cancelled');
+      throw e;
+    });
+}
+
+function apiGet(ep, opts = {}) {
+  const key = cacheKey(ep, null);
+  const cached = cacheGet(key);
+  if (cached) return Promise.resolve(cached);
+
+  progressStart();
+  const ttl = opts.ttl || CACHE_TTL_SHORT;
+  const fetchOpts = {};
+  if (opts.signal) fetchOpts.signal = opts.signal;
+
+  return fetch('/api' + ep, fetchOpts)
+    .then(r => r.json())
+    .then(data => {
+      cacheSet(key, data, ttl);
+      progressEnd();
+      return data;
+    })
+    .catch(e => {
+      progressEnd();
+      if (e.name === 'AbortError') throw new Error('Request cancelled');
+      throw e;
+    });
+}
 
 function fmt(n,d=2){ return n==null?'—':Number(n).toFixed(d); }
 function fmtLakh(n){ return n>=10000000?(n/10000000).toFixed(1)+'Cr':n>=100000?(n/100000).toFixed(1)+'L':n>=1000?(n/1000).toFixed(1)+'K':n; }
@@ -522,8 +658,45 @@ function setSectorDateRange(days){
   event.target.classList.add('active');
 }
 
+// ═══════════════════════════════════════════════════════════
+//  Enhanced Loading States with animated progress
+// ═══════════════════════════════════════════════════════════
+let loadingIntervals = {};
+
 function showLoading(id, msg='Loading...'){
-  document.getElementById(id).innerHTML = `<div class="loading"><div class="loading-spinner"></div><div class="loading-text">${msg}</div></div>`;
+  const el = document.getElementById(id);
+  el.innerHTML = `<div class="loading">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">${msg}</div>
+    <div class="loading-pct" id="lp-${id}">0%</div>
+    <div class="loading-sub" id="ls-${id}"></div>
+  </div>`;
+  // Animate progress percentage
+  let pct = 0;
+  if (loadingIntervals[id]) clearInterval(loadingIntervals[id]);
+  const startTime = Date.now();
+  loadingIntervals[id] = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    // Ease towards 90% over time, never reach 100
+    pct = Math.min(90, pct + (90 - pct) * 0.04);
+    const pctEl = document.getElementById('lp-' + id);
+    const subEl = document.getElementById('ls-' + id);
+    if (pctEl) pctEl.textContent = Math.round(pct) + '%';
+    // Show cold start message after 3 seconds
+    if (subEl && elapsed > 3000 && pct < 85) {
+      subEl.textContent = 'Warming up server (Render cold start) — hang tight...';
+    }
+  }, 150);
+}
+
+function hideLoading(id) {
+  if (loadingIntervals[id]) {
+    clearInterval(loadingIntervals[id]);
+    delete loadingIntervals[id];
+  }
+  // Flash to 100% briefly
+  const pctEl = document.getElementById('lp-' + id);
+  if (pctEl) pctEl.textContent = '100%';
 }
 
 function drawSparkline(data, el){
@@ -612,10 +785,11 @@ async function doLogout(){
   document.getElementById('app').classList.remove('show');
   document.getElementById('auth').classList.remove('hide');
   tabLoaded = {};
+  apiCache.clear();
 }
 
 // ═══════════════════════════════════════════════════════════
-//  INIT
+//  INIT — pre-fetch dashboard data immediately on auth
 // ═══════════════════════════════════════════════════════════
 function initApp(){
   document.getElementById('auth').classList.add('hide');
@@ -630,16 +804,24 @@ function initApp(){
     const now=new Date();
     document.getElementById('clock').textContent=now.toLocaleTimeString('en-IN',{hour12:false});
   },1000);
-  // Load dashboard
+  // Pre-fetch: load dashboard immediately, don't wait for tab switch
   loadDashboard();
+  // Pre-fetch: warm up indices data in cache (fire and forget)
+  apiGet('/indices', { ttl: CACHE_TTL_SHORT }).catch(()=>{});
+  api('/breadth', { symbols: INDICES.NIFTY50 }, { ttl: CACHE_TTL_SHORT }).catch(()=>{});
 }
 
 // ═══════════════════════════════════════════════════════════
-//  NAV
+//  NAV — cancel in-flight requests when switching tabs
 // ═══════════════════════════════════════════════════════════
 document.getElementById('nav').addEventListener('click', e=>{
   const tab = e.target.dataset.tab;
   if(!tab) return;
+  // Cancel in-flight requests for the previous tab
+  if (activeTab !== tab && abortControllers.has(activeTab)) {
+    abortControllers.get(activeTab).abort();
+    abortControllers.delete(activeTab);
+  }
   activeTab = tab;
   document.querySelectorAll('.topbar-tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+tab));
@@ -654,11 +836,13 @@ document.getElementById('nav').addEventListener('click', e=>{
 //  TAB: DASHBOARD
 // ═══════════════════════════════════════════════════════════
 async function loadDashboard(){
+  const signal = getAbortSignal('dashboard');
   try{
     const [indices, breadth] = await Promise.all([
-      apiGet('/indices'),
-      api('/breadth', {symbols: INDICES.NIFTY50})
+      apiGet('/indices', { signal }),
+      api('/breadth', {symbols: INDICES.NIFTY50}, { signal })
     ]);
+    clearAbort('dashboard');
     tabLoaded.dashboard = true;
 
     // Indices
@@ -694,6 +878,7 @@ async function loadDashboard(){
       document.getElementById('dash-heatmap').innerHTML = heatHtml;
     }
   }catch(e){
+    if (e.message === 'Request cancelled') return;
     document.getElementById('dash-indices').innerHTML = `<div style="color:var(--red)">${e.message}</div>`;
   }
 }
@@ -719,9 +904,12 @@ async function loadScreener(){
   if(!fr||!to) return;
 
   showLoading('scr-table', 'Analyzing stocks with full technicals...');
+  const signal = getAbortSignal('screener');
 
   try{
-    const data = await api('/screener', {index:idx, from:fr, to:to});
+    const data = await api('/screener', {index:idx, from:fr, to:to}, { signal, ttl: CACHE_TTL_LONG });
+    clearAbort('screener');
+    hideLoading('scr-table');
     screenerData = data;
     tabLoaded.screener = true;
 
@@ -736,6 +924,8 @@ async function loadScreener(){
     document.getElementById('scr-sort-bar').style.display = 'flex';
     renderScreenerTable(data.stocks);
   }catch(e){
+    hideLoading('scr-table');
+    if (e.message === 'Request cancelled') return;
     document.getElementById('scr-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
   }
 }
@@ -830,8 +1020,11 @@ function quickSort(type){
 async function loadSmartMoney(){
   const idx = document.getElementById('sm-index').value;
   showLoading('sm-table', 'Analyzing smart money flow...');
+  const signal = getAbortSignal('smartmoney');
   try{
-    const data = await api('/smartmoney', {symbols: INDICES[idx]});
+    const data = await api('/smartmoney', {symbols: INDICES[idx]}, { signal });
+    clearAbort('smartmoney');
+    hideLoading('sm-table');
     smartMoneyData = data;
     tabLoaded.smartmoney = true;
 
@@ -849,6 +1042,8 @@ async function loadSmartMoney(){
 
     renderSmartMoneyTable(data.stocks);
   }catch(e){
+    hideLoading('sm-table');
+    if (e.message === 'Request cancelled') return;
     document.getElementById('sm-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
   }
 }
@@ -905,8 +1100,11 @@ async function loadOptions(){
   const sym = document.getElementById('opt-sym').value;
   const expiry = document.getElementById('opt-expiry').value;
   showLoading('opt-table', 'Loading option chain...');
+  const signal = getAbortSignal('options');
   try{
-    const data = await api('/optionchain', {symbol:sym, expiry:expiry});
+    const data = await api('/optionchain', {symbol:sym, expiry:expiry}, { signal });
+    clearAbort('options');
+    hideLoading('opt-table');
     tabLoaded.options = true;
 
     // Populate expiries
@@ -962,6 +1160,8 @@ async function loadOptions(){
     html += '</tbody></table>';
     document.getElementById('opt-table').innerHTML = html;
   }catch(e){
+    hideLoading('opt-table');
+    if (e.message === 'Request cancelled') return;
     document.getElementById('opt-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
   }
 }
@@ -974,8 +1174,11 @@ async function loadSectors(){
   const to = document.getElementById('sec-to').value;
   if(!fr||!to) return;
   showLoading('sec-content', 'Analyzing sector rotation...');
+  const signal = getAbortSignal('sectors');
   try{
-    const data = await api('/sectors', {from:fr, to:to});
+    const data = await api('/sectors', {from:fr, to:to}, { signal, ttl: CACHE_TTL_LONG });
+    clearAbort('sectors');
+    hideLoading('sec-content');
     tabLoaded.sectors = true;
 
     let html = '<div class="stats" style="margin-bottom:20px">';
@@ -1023,6 +1226,8 @@ async function loadSectors(){
 
     document.getElementById('sec-content').innerHTML = html;
   }catch(e){
+    hideLoading('sec-content');
+    if (e.message === 'Request cancelled') return;
     document.getElementById('sec-content').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
   }
 }
@@ -1033,8 +1238,11 @@ async function loadSectors(){
 async function loadMomentum(){
   const idx = document.getElementById('mom-index').value;
   showLoading('mom-table', 'Scanning momentum indicators (1Y historical)...');
+  const signal = getAbortSignal('momentum');
   try{
-    const data = await api('/momentum', {symbols: INDICES[idx]});
+    const data = await api('/momentum', {symbols: INDICES[idx]}, { signal, ttl: CACHE_TTL_LONG });
+    clearAbort('momentum');
+    hideLoading('mom-table');
     momentumData = data;
     tabLoaded.momentum = true;
 
@@ -1055,6 +1263,8 @@ async function loadMomentum(){
 
     renderMomentumTable(data.stocks);
   }catch(e){
+    hideLoading('mom-table');
+    if (e.message === 'Request cancelled') return;
     document.getElementById('mom-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
   }
 }
@@ -1125,8 +1335,11 @@ function sortMomentum(col){
 async function loadRisk(){
   const idx = document.getElementById('risk-index').value;
   showLoading('risk-table', 'Computing risk metrics (1Y historical)...');
+  const signal = getAbortSignal('risk');
   try{
-    const data = await api('/risk', {symbols: INDICES[idx].slice(0,20)});
+    const data = await api('/risk', {symbols: INDICES[idx].slice(0,20)}, { signal, ttl: CACHE_TTL_LONG });
+    clearAbort('risk');
+    hideLoading('risk-table');
     tabLoaded.risk = true;
 
     document.getElementById('risk-stats').innerHTML = `
@@ -1161,6 +1374,8 @@ async function loadRisk(){
     html += '</tbody></table>';
     document.getElementById('risk-table').innerHTML = html;
   }catch(e){
+    hideLoading('risk-table');
+    if (e.message === 'Request cancelled') return;
     document.getElementById('risk-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
   }
 }
@@ -1170,7 +1385,7 @@ async function loadCorrelation(){
   const el = document.getElementById('risk-corr');
   el.innerHTML = '<div class="loading"><div class="loading-spinner"></div><div class="loading-text">Computing correlation matrix...</div></div>';
   try{
-    const data = await api('/correlation', {symbols: INDICES[idx].slice(0,15)});
+    const data = await api('/correlation', {symbols: INDICES[idx].slice(0,15)}, { ttl: CACHE_TTL_LONG });
     let html = '<div class="card"><div class="card-title" style="margin-bottom:12px">Correlation Matrix (90-day)</div><div class="corr-matrix"><table><tr><th></th>';
     for(const s of data.symbols) html += `<th>${s}</th>`;
     html += '</tr>';
@@ -1185,6 +1400,7 @@ async function loadCorrelation(){
     html += '</table></div></div>';
     el.innerHTML = html;
   }catch(e){
+    if (e.message === 'Request cancelled') return;
     el.innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
   }
 }
@@ -1194,12 +1410,15 @@ async function loadCorrelation(){
 // ═══════════════════════════════════════════════════════════
 async function loadSignals(){
   showLoading('sig-content', 'Generating institutional signals...');
+  const signal = getAbortSignal('signals');
   try{
     // Fetch smart money + momentum in parallel for signal generation
     const [sm, mom] = await Promise.all([
-      api('/smartmoney', {symbols: INDICES.NIFTY50}),
-      api('/momentum', {symbols: INDICES.NIFTY50}),
+      api('/smartmoney', {symbols: INDICES.NIFTY50}, { signal }),
+      api('/momentum', {symbols: INDICES.NIFTY50}, { signal, ttl: CACHE_TTL_LONG }),
     ]);
+    clearAbort('signals');
+    hideLoading('sig-content');
     tabLoaded.signals = true;
 
     let html = '';
@@ -1353,6 +1572,8 @@ async function loadSignals(){
 
     document.getElementById('sig-content').innerHTML = html;
   }catch(e){
+    hideLoading('sig-content');
+    if (e.message === 'Request cancelled') return;
     document.getElementById('sig-content').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
   }
 }

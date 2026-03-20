@@ -6,7 +6,7 @@ Run:  python3 server.py
 Open: http://localhost:3000
 Supports 20+ concurrent users, each with their own Zerodha keys.
 """
-import os, json, csv, io, time, hashlib, math, traceback, statistics, uuid, threading
+import os, json, csv, io, time, hashlib, math, traceback, statistics, uuid, threading, gzip
 from datetime import datetime, timedelta
 import tornado.ioloop, tornado.web, tornado.gen
 import requests
@@ -16,6 +16,53 @@ PORT = int(os.environ.get("PORT", 3000))
 KITE = "https://api.kite.trade"
 DIR  = os.path.dirname(os.path.abspath(__file__))
 pool = ThreadPoolExecutor(max_workers=20)
+
+# ═══════════════════════════════════════════════════════════
+#  SERVER-SIDE RESPONSE CACHE WITH TTL
+# ═══════════════════════════════════════════════════════════
+_cache = {}       # key -> {"data": ..., "ts": time.time()}
+_cache_lock = threading.Lock()
+
+CACHE_TTL_QUOTE      = 15   # seconds
+CACHE_TTL_HISTORICAL = 60
+CACHE_TTL_SCREENER   = 30
+
+def cache_get(key):
+    """Return cached value if still valid, else None."""
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and (time.time() - entry["ts"]) < entry["ttl"]:
+            return entry["data"]
+        # Expired — remove it
+        _cache.pop(key, None)
+        return None
+
+def cache_set(key, data, ttl):
+    """Store value with TTL."""
+    with _cache_lock:
+        _cache[key] = {"data": data, "ts": time.time(), "ttl": ttl}
+
+def cache_evict_expired():
+    """Remove all expired entries (called periodically)."""
+    now = time.time()
+    with _cache_lock:
+        expired = [k for k, v in _cache.items() if (now - v["ts"]) >= v["ttl"]]
+        for k in expired:
+            del _cache[k]
+
+# Periodic cache cleanup every 120 seconds
+def _schedule_cache_cleanup():
+    cache_evict_expired()
+    tornado.ioloop.IOLoop.current().call_later(120, _schedule_cache_cleanup)
+
+# ═══════════════════════════════════════════════════════════
+#  GZIP COMPRESSION HELPER
+# ═══════════════════════════════════════════════════════════
+GZIP_MIN_SIZE = 1024  # Only compress responses larger than 1KB
+
+def gzip_compress(data_bytes):
+    """Compress bytes with gzip."""
+    return gzip.compress(data_bytes, compresslevel=6)
 
 # ═══════════════════════════════════════════════════════════
 #  MULTI-USER SESSION MANAGEMENT
@@ -338,6 +385,11 @@ def calc_support_resistance(highs, lows, closes, num_levels=3):
 def fetch_historical_for(session, sym, from_date, to_date, interval="day"):
     info = SYM.get(sym)
     if not info: return None, f"{sym}: not found"
+    # Check cache first
+    ck = f"hist:{session['api_key']}:{sym}:{from_date}:{to_date}:{interval}"
+    cached = cache_get(ck)
+    if cached is not None:
+        return cached, None
     try:
         r = requests.get(
             f"{KITE}/instruments/historical/{info['token']}/{interval}",
@@ -346,6 +398,7 @@ def fetch_historical_for(session, sym, from_date, to_date, interval="day"):
         r.raise_for_status()
         candles = r.json().get("data", {}).get("candles", [])
         if not candles: return None, f"{sym}: no data"
+        cache_set(ck, candles, CACHE_TTL_HISTORICAL)
         return candles, None
     except Exception as e:
         return None, f"{sym}: {str(e)[:80]}"
@@ -386,6 +439,21 @@ class Base(tornado.web.RequestHandler):
             self.err(401, "Not authenticated. Please login.")
             return None
         return s
+    def write_json_gzip(self, data):
+        """Write JSON response with gzip compression for large payloads."""
+        raw = json.dumps(data) if not isinstance(data, (str, bytes)) else data
+        if isinstance(raw, str):
+            raw_bytes = raw.encode("utf-8")
+        else:
+            raw_bytes = raw
+        accept_enc = self.request.headers.get("Accept-Encoding", "")
+        if len(raw_bytes) >= GZIP_MIN_SIZE and "gzip" in accept_enc:
+            compressed = gzip_compress(raw_bytes)
+            self.set_header("Content-Encoding", "gzip")
+            self.set_header("Content-Length", str(len(compressed)))
+            self.write(compressed)
+        else:
+            self.write(raw_bytes)
 
 class IndexPage(tornado.web.RequestHandler):
     def get(self):
@@ -407,6 +475,13 @@ class StaticFileHandler(tornado.web.RequestHandler):
             with open(fpath, "rb") as f: self.write(f.read())
         else:
             with open(fpath, "r", encoding="utf-8") as f: self.write(f.read())
+
+# ── Health Endpoint (Render keep-alive) ───────────────────
+
+class HealthHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.set_header("Content-Type","application/json")
+        self.write(json.dumps({"status":"ok","uptime":round(time.time()-_server_start,1),"sessions":len(sessions),"instruments":len(SYM)}))
 
 # ── Auth (Multi-User) ────────────────────────────────────
 
@@ -504,6 +579,12 @@ class QuoteHandler(Base):
         b = self.body()
         syms = b.get("symbols",[])
         if not syms: return self.err(400,"No symbols")
+        # Cache key based on user + sorted symbols
+        ck = f"quote:{s['api_key']}:{','.join(sorted(syms))}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip({"data": cached})
+            return
         try:
             all_data = {}
             for i in range(0, len(syms), 100):
@@ -513,7 +594,8 @@ class QuoteHandler(Base):
                 r.raise_for_status()
                 d = r.json().get("data",{})
                 all_data.update(d)
-            self.write(json.dumps({"data": all_data}))
+            cache_set(ck, all_data, CACHE_TTL_QUOTE)
+            self.write_json_gzip({"data": all_data})
         except Exception as e:
             self.err(500, str(e))
 
@@ -521,6 +603,11 @@ class IndicesHandler(Base):
     def get(self):
         s = self.require_session()
         if not s: return
+        ck = f"indices:{s['api_key']}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
         try:
             idx = ["NIFTY 50","NIFTY BANK","INDIA VIX","NIFTY IT",
                    "NIFTY FIN SERVICE","NIFTY MIDCAP 50","NIFTY NEXT 50",
@@ -529,7 +616,9 @@ class IndicesHandler(Base):
             params = [("i",f"NSE:{i}") for i in idx]
             r = requests.get(f"{KITE}/quote", params=params, headers=kh_for(s), timeout=15)
             r.raise_for_status()
-            self.write(json.dumps(r.json()))
+            result = r.json()
+            cache_set(ck, result, CACHE_TTL_QUOTE)
+            self.write_json_gzip(result)
         except Exception as e:
             self.err(500, str(e))
 
@@ -543,13 +632,20 @@ class HistHandler(Base):
         if not sym or not fr or not to: return self.err(400,"Need symbol, from, to")
         info = SYM.get(sym)
         if not info: return self.err(404,f"Unknown: {sym}")
+        ck = f"histapi:{s['api_key']}:{sym}:{fr}:{to}:{interval}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
         try:
             r = requests.get(
                 f"{KITE}/instruments/historical/{info['token']}/{interval}",
                 params={"from":f"{fr} 09:15:00","to":f"{to} 15:30:00"},
                 headers=kh_for(s), timeout=15)
             r.raise_for_status()
-            self.write(json.dumps(r.json()))
+            result = r.json()
+            cache_set(ck, result, CACHE_TTL_HISTORICAL)
+            self.write_json_gzip(result)
         except Exception as e:
             self.err(500, str(e))
 
@@ -566,6 +662,13 @@ class ScreenerHandler(Base):
         if not syms and index_name:
             syms = INDICES.get(index_name, NIFTY50)
         if not fr or not to: return self.err(400,"Need from and to dates")
+
+        # Check screener-level cache
+        ck = f"screener:{s['api_key']}:{index_name}:{','.join(sorted(syms))}:{fr}:{to}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
 
         loop = tornado.ioloop.IOLoop.current()
         nifty_candles, _ = await loop.run_in_executor(pool, fetch_historical_for, s, "NIFTY 50", fr, to)
@@ -626,24 +729,26 @@ class ScreenerHandler(Base):
                 "sparkline":cl[-30:] if len(cl)>=30 else cl,
             }, None
 
-        for i in range(0, len(syms), 3):
-            batch = syms[i:i+3]
+        for i in range(0, len(syms), 5):
+            batch = syms[i:i+5]
             futs = [loop.run_in_executor(pool, fetch_and_analyze, sym) for sym in batch]
             ress = await tornado.gen.multi(futs)
             for r, e in ress:
                 if r: results.append(r)
                 if e: errors.append(e)
-            if i+3 < len(syms): await tornado.gen.sleep(0.35)
+            if i+5 < len(syms): await tornado.gen.sleep(0.15)
 
         changes = [r["change"] for r in results]
         avg_change = round(sum(changes)/len(changes),2) if changes else 0
         advances = sum(1 for c in changes if c>0.05)
         declines = sum(1 for c in changes if c<-0.05)
-        self.write(json.dumps({
+        response = {
             "count":len(results),"fromDate":fr,"toDate":to,"indexChange":avg_change,
             "advances":advances,"declines":declines,"unchanged":len(changes)-advances-declines,
             "stocks":results,"errors":errors,
-        }))
+        }
+        cache_set(ck, response, CACHE_TTL_SCREENER)
+        self.write_json_gzip(response)
 
 # ── SMART MONEY FLOW ──────────────────────────────────────
 
@@ -653,6 +758,11 @@ class SmartMoneyHandler(Base):
         if not s: return
         b = self.body()
         syms = b.get("symbols", NIFTY50)
+        ck = f"smartmoney:{s['api_key']}:{','.join(sorted(syms))}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
         try:
             all_data = {}
             for i in range(0, len(syms), 100):
@@ -700,8 +810,10 @@ class SmartMoneyHandler(Base):
                     "open":ohlc.get("open",0),"prevClose":prev,
                 })
             market_bs = round(total_buy/total_sell,2) if total_sell>0 else 0
-            self.write(json.dumps({"stocks":results,"marketBSRatio":market_bs,
-                "totalBuyQty":total_buy,"totalSellQty":total_sell}))
+            response = {"stocks":results,"marketBSRatio":market_bs,
+                "totalBuyQty":total_buy,"totalSellQty":total_sell}
+            cache_set(ck, response, CACHE_TTL_QUOTE)
+            self.write_json_gzip(response)
         except Exception as e:
             self.err(500, str(e))
 
@@ -716,6 +828,14 @@ class MomentumHandler(Base):
         loop = tornado.ioloop.IOLoop.current()
         to_date = datetime.now().strftime("%Y-%m-%d")
         from_date = (datetime.now()-timedelta(days=365)).strftime("%Y-%m-%d")
+
+        # Check cache
+        ck = f"momentum:{s['api_key']}:{','.join(sorted(syms))}:{from_date}:{to_date}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
+
         results, errors = [], []
 
         def analyze_momentum(sym):
@@ -776,15 +896,18 @@ class MomentumHandler(Base):
                 "chg1w":chg_1w,"chg1m":chg_1m,"chg3m":chg_3m,"chg6m":chg_6m,"chg1y":chg_1y,
             }, None
 
-        for i in range(0, len(syms), 3):
-            batch = syms[i:i+3]
+        for i in range(0, len(syms), 5):
+            batch = syms[i:i+5]
             futs = [loop.run_in_executor(pool, analyze_momentum, sym) for sym in batch]
             ress = await tornado.gen.multi(futs)
             for r, e in ress:
                 if r: results.append(r)
                 if e: errors.append(e)
-            if i+3 < len(syms): await tornado.gen.sleep(0.35)
-        self.write(json.dumps({"count":len(results),"stocks":results,"errors":errors}))
+            if i+5 < len(syms): await tornado.gen.sleep(0.15)
+
+        response = {"count":len(results),"stocks":results,"errors":errors}
+        cache_set(ck, response, CACHE_TTL_SCREENER)
+        self.write_json_gzip(response)
 
 # ── SECTOR ROTATION ───────────────────────────────────────
 
@@ -795,12 +918,19 @@ class SectorRotationHandler(Base):
         b = self.body()
         fr = b.get("from",(datetime.now()-timedelta(days=30)).strftime("%Y-%m-%d"))
         to = b.get("to",datetime.now().strftime("%Y-%m-%d"))
+
+        ck = f"sectors:{s['api_key']}:{fr}:{to}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
+
         loop = tornado.ioloop.IOLoop.current()
         sector_data = {}
         for sector, syms in _sector_map.items():
             sector_results = []
-            for i in range(0, len(syms), 3):
-                batch = syms[i:i+3]
+            for i in range(0, len(syms), 5):
+                batch = syms[i:i+5]
                 futs = [loop.run_in_executor(pool, fetch_historical_for, s, sym, fr, to) for sym in batch]
                 ress = await tornado.gen.multi(futs)
                 for idx, (candles, err) in enumerate(ress):
@@ -811,7 +941,7 @@ class SectorRotationHandler(Base):
                             chg = (cl[-1]-cl[0])/cl[0]*100
                             vol_avg = sum(v)/len(v) if v else 0
                             sector_results.append({"symbol":sym,"change":round(chg,2),"ltp":round(cl[-1],2),"avgVolume":round(vol_avg)})
-                if i+3 < len(syms): await tornado.gen.sleep(0.35)
+                if i+5 < len(syms): await tornado.gen.sleep(0.15)
             if sector_results:
                 avg_chg = sum(r["change"] for r in sector_results)/len(sector_results)
                 adv = sum(1 for r in sector_results if r["change"]>0)
@@ -820,7 +950,9 @@ class SectorRotationHandler(Base):
                 sector_data[sector] = {"avgChange":round(avg_chg,2),"advances":adv,"declines":dec,"breadth":breadth,
                     "stocks":sorted(sector_results, key=lambda x: x["change"], reverse=True)}
         sorted_sectors = sorted(sector_data.items(), key=lambda x: x[1]["avgChange"], reverse=True)
-        self.write(json.dumps({"fromDate":fr,"toDate":to,"sectors":{k:v for k,v in sorted_sectors}}))
+        response = {"fromDate":fr,"toDate":to,"sectors":{k:v for k,v in sorted_sectors}}
+        cache_set(ck, response, CACHE_TTL_SCREENER)
+        self.write_json_gzip(response)
 
 # ── CORRELATION MATRIX ────────────────────────────────────
 
@@ -832,10 +964,17 @@ class CorrelationHandler(Base):
         syms = b.get("symbols", NIFTY50[:15])[:20]
         fr = b.get("from",(datetime.now()-timedelta(days=90)).strftime("%Y-%m-%d"))
         to = b.get("to",datetime.now().strftime("%Y-%m-%d"))
+
+        ck = f"corr:{s['api_key']}:{','.join(sorted(syms))}:{fr}:{to}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
+
         loop = tornado.ioloop.IOLoop.current()
         returns_map = {}
-        for i in range(0, len(syms), 3):
-            batch = syms[i:i+3]
+        for i in range(0, len(syms), 5):
+            batch = syms[i:i+5]
             futs = [loop.run_in_executor(pool, fetch_historical_for, s, sym, fr, to) for sym in batch]
             ress = await tornado.gen.multi(futs)
             for idx, (candles, err) in enumerate(ress):
@@ -843,7 +982,7 @@ class CorrelationHandler(Base):
                 if candles:
                     _, _, _, cl, _, _ = parse_candles(candles)
                     returns_map[sym] = calc_returns(cl)
-            if i+3 < len(syms): await tornado.gen.sleep(0.35)
+            if i+5 < len(syms): await tornado.gen.sleep(0.15)
         valid_syms = [sym for sym in syms if sym in returns_map]
         matrix = []
         for s1 in valid_syms:
@@ -861,7 +1000,9 @@ class CorrelationHandler(Base):
                 corr = cov/(sa*sb) if sa*sb>0 else 0
                 row.append(round(corr,3))
             matrix.append(row)
-        self.write(json.dumps({"symbols":valid_syms,"matrix":matrix}))
+        response = {"symbols":valid_syms,"matrix":matrix}
+        cache_set(ck, response, CACHE_TTL_SCREENER)
+        self.write_json_gzip(response)
 
 # ── BREADTH ───────────────────────────────────────────────
 
@@ -871,6 +1012,11 @@ class BreadthHandler(Base):
         if not s: return
         b = self.body()
         syms = b.get("symbols", NIFTY50)
+        ck = f"breadth:{s['api_key']}:{','.join(sorted(syms))}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
         try:
             all_data = {}
             for i in range(0, len(syms), 100):
@@ -901,9 +1047,11 @@ class BreadthHandler(Base):
                     "low":ohlc.get("low",0),"change":round(chg,2),
                     "volume":vol,"buyQty":buy_qty,"sellQty":sell_qty})
             total = adv+dec+unch
-            self.write(json.dumps({"advances":adv,"declines":dec,"unchanged":unch,"total":total,
+            response = {"advances":adv,"declines":dec,"unchanged":unch,"total":total,
                 "adRatio":round(adv/max(dec,1),2),"breadthPct":round(adv/max(total,1)*100,1),
-                "sectorBreadth":sector_breadth,"stocks":sorted(stocks, key=lambda x: x["change"])}))
+                "sectorBreadth":sector_breadth,"stocks":sorted(stocks, key=lambda x: x["change"])}
+            cache_set(ck, response, CACHE_TTL_QUOTE)
+            self.write_json_gzip(response)
         except Exception as e:
             self.err(500, str(e))
 
@@ -918,6 +1066,13 @@ class RiskHandler(Base):
         loop = tornado.ioloop.IOLoop.current()
         to_date = datetime.now().strftime("%Y-%m-%d")
         from_date = (datetime.now()-timedelta(days=365)).strftime("%Y-%m-%d")
+
+        ck = f"risk:{s['api_key']}:{','.join(sorted(syms))}:{from_date}:{to_date}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
+
         nifty_candles, _ = await loop.run_in_executor(pool, fetch_historical_for, s, "NIFTY 50", from_date, to_date)
         nifty_rets = []
         if nifty_candles:
@@ -950,15 +1105,15 @@ class RiskHandler(Base):
                 "beta":beta,"sharpe":sharpe,"sortino":sortino,"calmar":calmar,
                 "var95":var_95,"cvar95":cvar,"dataPoints":len(candles)}, None, returns
 
-        for i in range(0, len(syms), 3):
-            batch = syms[i:i+3]
+        for i in range(0, len(syms), 5):
+            batch = syms[i:i+5]
             futs = [loop.run_in_executor(pool, analyze_risk, sym) for sym in batch]
             ress = await tornado.gen.multi(futs)
             for r, e, rets in ress:
                 if r: results.append(r)
                 if e: errors.append(e)
                 if rets and r: all_returns[r["symbol"]] = rets
-            if i+3 < len(syms): await tornado.gen.sleep(0.35)
+            if i+5 < len(syms): await tornado.gen.sleep(0.15)
 
         portfolio_var = 0
         if all_returns and len(all_returns)>1:
@@ -971,7 +1126,9 @@ class RiskHandler(Base):
             sorted_port = sorted(port_returns)
             var_idx = int(len(sorted_port)*0.05)
             portfolio_var = round(sorted_port[var_idx]*100,2) if var_idx<len(sorted_port) else 0
-        self.write(json.dumps({"count":len(results),"stocks":results,"portfolioVaR95":portfolio_var,"errors":errors}))
+        response = {"count":len(results),"stocks":results,"portfolioVaR95":portfolio_var,"errors":errors}
+        cache_set(ck, response, CACHE_TTL_SCREENER)
+        self.write_json_gzip(response)
 
 # ── OPTION CHAIN ──────────────────────────────────────────
 
@@ -994,6 +1151,11 @@ class OptionChainHandler(Base):
             mid = len(strikes)//2
             keep = set(strikes[max(0,mid-25):mid+25])
             chain = [c for c in chain if c["strike"] in keep]
+        ck = f"optchain:{s['api_key']}:{underlying}:{expiry}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
         try:
             params = [("i",f"NFO:{o['symbol']}") for o in chain[:100]]
             r = requests.get(f"{KITE}/quote", params=params, headers=kh_for(s), timeout=15)
@@ -1024,12 +1186,14 @@ class OptionChainHandler(Base):
             pe_oi_list = [(st["strike"],st.get("pe_oi",0)) for st in result]
             max_ce_oi = max(ce_oi_list, key=lambda x: x[1]) if ce_oi_list else (0,0)
             max_pe_oi = max(pe_oi_list, key=lambda x: x[1]) if pe_oi_list else (0,0)
-            self.write(json.dumps({
+            response = {
                 "underlying":underlying,"expiry":expiry,"expiries":expiries[:12],"chain":result,
                 "totalCEOI":tce,"totalPEOI":tpe,"pcr":round(pcr,3),"maxPain":mp,
                 "maxCEOIStrike":max_ce_oi[0],"maxPEOIStrike":max_pe_oi[0],
                 "maxCEOI":max_ce_oi[1],"maxPEOI":max_pe_oi[1],
-            }))
+            }
+            cache_set(ck, response, CACHE_TTL_QUOTE)
+            self.write_json_gzip(response)
         except Exception as e:
             self.err(500, str(e))
 
@@ -1044,6 +1208,8 @@ class IndexConstituentsHandler(Base):
 # ═══════════════════════════════════════════════════════════
 #  APP
 # ═══════════════════════════════════════════════════════════
+_server_start = time.time()
+
 def make_app():
     return tornado.web.Application([
         (r"/", IndexPage),
@@ -1052,6 +1218,7 @@ def make_app():
         (r"/(icon-192\.png)", StaticFileHandler),
         (r"/(icon-512\.png)", StaticFileHandler),
         (r"/callback", CallbackHandler),
+        (r"/api/health", HealthHandler),
         (r"/api/auth", AuthHandler),
         (r"/api/login", LoginRedirect),
         (r"/api/logout", LogoutHandler),
@@ -1073,10 +1240,14 @@ def make_app():
 if __name__ == "__main__":
     app = make_app()
     app.listen(PORT)
+    # Schedule periodic cache cleanup
+    tornado.ioloop.IOLoop.current().call_later(120, _schedule_cache_cleanup)
     print(f"\n{'='*55}")
     print(f"  NSE PULSE PRO v5.0 — Multi-User Institutional Terminal")
     print(f"  Built by Kanishk Arora")
     print(f"  Supports up to {MAX_SESSIONS} concurrent users")
+    print(f"  Performance: cache TTLs quote={CACHE_TTL_QUOTE}s hist={CACHE_TTL_HISTORICAL}s screener={CACHE_TTL_SCREENER}s")
+    print(f"  Batch size: 5 | Delay: 0.15s | Gzip: >{GZIP_MIN_SIZE}B | Workers: 20")
     print(f"  http://localhost:{PORT}")
     print(f"{'='*55}\n")
     tornado.ioloop.IOLoop.current().start()
