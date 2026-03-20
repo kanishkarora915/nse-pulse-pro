@@ -301,6 +301,20 @@ a{color:var(--accent2);text-decoration:none}
     <button class="btn btn-primary" onclick="loadScreener()">Analyze</button>
   </div>
   <div id="scr-stats" class="stats"></div>
+  <div class="controls" id="scr-sort-bar" style="display:none">
+    <label>Quick Sort</label>
+    <div class="btn-group">
+      <button class="btn" onclick="quickSort('fell_most')">Fell Most</button>
+      <button class="btn" onclick="quickSort('fell_least')">Fell Least</button>
+      <button class="btn" onclick="quickSort('top_gainers')">Top Gainers</button>
+      <button class="btn" onclick="quickSort('volume')">Volume</button>
+      <button class="btn" onclick="quickSort('volatility')">Volatility</button>
+      <button class="btn" onclick="quickSort('rsi_oversold')">RSI Oversold</button>
+      <button class="btn" onclick="quickSort('rsi_overbought')">RSI Overbought</button>
+      <button class="btn" onclick="quickSort('az')">A → Z</button>
+      <button class="btn" onclick="quickSort('za')">Z → A</button>
+    </div>
+  </div>
   <div id="scr-table" class="tbl-wrap"></div>
 </div>
 
@@ -711,6 +725,7 @@ async function loadScreener(){
       <div class="stat"><div class="stat-label">Declines</div><div class="stat-value mono dn">${data.declines}</div></div>
       <div class="stat"><div class="stat-label">Period</div><div class="stat-value" style="font-size:1rem">${fr} → ${to}</div></div>`;
 
+    document.getElementById('scr-sort-bar').style.display = 'flex';
     renderScreenerTable(data.stocks);
   }catch(e){
     document.getElementById('scr-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
@@ -779,6 +794,26 @@ function renderScreenerTable(stocks){
 function sortScreener(col){
   if(!screenerData) return;
   sortTable('scr', screenerData.stocks, col, renderScreenerTable);
+}
+
+function quickSort(type){
+  if(!screenerData||!screenerData.stocks) return;
+  const s = screenerData.stocks;
+  // Highlight active button
+  document.querySelectorAll('#scr-sort-bar .btn').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  switch(type){
+    case 'fell_most': s.sort((a,b)=>a.change-b.change); break;
+    case 'fell_least': s.sort((a,b)=>b.change-a.change); break;
+    case 'top_gainers': s.sort((a,b)=>b.change-a.change); break;
+    case 'volume': s.sort((a,b)=>b.avgVolume-a.avgVolume); break;
+    case 'volatility': s.sort((a,b)=>b.volatility-a.volatility); break;
+    case 'rsi_oversold': s.sort((a,b)=>(a.rsi||999)-(b.rsi||999)); break;
+    case 'rsi_overbought': s.sort((a,b)=>(b.rsi||0)-(a.rsi||0)); break;
+    case 'az': s.sort((a,b)=>a.symbol.localeCompare(b.symbol)); break;
+    case 'za': s.sort((a,b)=>b.symbol.localeCompare(a.symbol)); break;
+  }
+  renderScreenerTable(s);
 }
 
 // ═══════════════════════════════════════════════════════════
