@@ -1205,6 +1205,375 @@ class IndexConstituentsHandler(Base):
         syms = INDICES.get(index, NIFTY50)
         self.write(json.dumps({"index":index,"symbols":syms,"indices":list(INDICES.keys())}))
 
+# ── AI ANALYSIS DASHBOARD ────────────────────────────────
+
+CACHE_TTL_AI = 10  # seconds — meant to be called frequently
+
+class AIAnalysisHandler(Base):
+    async def post(self):
+        s = self.require_session()
+        if not s: return
+
+        ck = f"aianalysis:{s['api_key']}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
+
+        loop = tornado.ioloop.IOLoop.current()
+        response = {"timestamp": datetime.now().isoformat()}
+
+        # ── Helper: fetch quotes in batch ──
+        def _fetch_quotes(params_list, session):
+            """Fetch quotes from Kite given list of (i, instrument_string) params."""
+            all_data = {}
+            for i in range(0, len(params_list), 100):
+                batch = params_list[i:i+100]
+                try:
+                    r = requests.get(f"{KITE}/quote", params=batch, headers=kh_for(session), timeout=15)
+                    r.raise_for_status()
+                    d = r.json().get("data", {})
+                    all_data.update(d)
+                except:
+                    pass
+            return all_data
+
+        # ── 1. Live Index Data ──
+        def fetch_indices(session):
+            idx_names = ["NIFTY 50", "NIFTY BANK", "INDIA VIX", "NIFTY FIN SERVICE",
+                         "NIFTY MIDCAP 50", "NIFTY NEXT 50"]
+            params = [("i", f"NSE:{n}") for n in idx_names]
+            params.append(("i", "BSE:SENSEX"))
+            return _fetch_quotes(params, session)
+
+        # ── 2. Option chain data for NIFTY / BANKNIFTY ──
+        def fetch_option_data(underlying, session):
+            """Return PCR stats for a given underlying from NFO option chain."""
+            if not NFO:
+                return None
+            opts = [o for o in NFO if o["name"] == underlying and o["type"] in ("CE", "PE")]
+            if not opts:
+                return None
+            expiries = sorted(set(o["expiry"] for o in opts))
+            if not expiries:
+                return None
+            expiry = expiries[0]  # nearest expiry
+            chain = [o for o in opts if o["expiry"] == expiry]
+            chain = sorted(chain, key=lambda x: x["strike"])
+            # Keep top 50 strikes (25 around ATM)
+            if len(chain) > 100:
+                strikes = sorted(set(c["strike"] for c in chain))
+                mid = len(strikes) // 2
+                keep = set(strikes[max(0, mid - 25):mid + 25])
+                chain = [c for c in chain if c["strike"] in keep]
+            # Fetch quotes for these option contracts
+            params = [("i", f"NFO:{o['symbol']}") for o in chain[:100]]
+            try:
+                r = requests.get(f"{KITE}/quote", params=params, headers=kh_for(session), timeout=15)
+                r.raise_for_status()
+                data = r.json().get("data", {})
+            except:
+                return None
+            total_ce_buy = total_pe_buy = 0
+            total_ce_sell = total_pe_sell = 0
+            net_ce_oi = net_pe_oi = 0
+            strike_pain = {}
+            for o in chain:
+                key = f"NFO:{o['symbol']}"
+                info = data.get(key, {})
+                oi_val = info.get("oi", 0)
+                buy_qty = info.get("buy_quantity", 0)
+                sell_qty = info.get("sell_quantity", 0)
+                strike = o["strike"]
+                if strike not in strike_pain:
+                    strike_pain[strike] = {"ce_oi": 0, "pe_oi": 0}
+                if o["type"] == "CE":
+                    total_ce_buy += buy_qty
+                    total_ce_sell += sell_qty
+                    net_ce_oi += oi_val
+                    strike_pain[strike]["ce_oi"] = oi_val
+                else:
+                    total_pe_buy += buy_qty
+                    total_pe_sell += sell_qty
+                    net_pe_oi += oi_val
+                    strike_pain[strike]["pe_oi"] = oi_val
+            pcr = round(net_pe_oi / max(net_ce_oi, 1), 3)
+            # Max Pain calculation
+            mp = 0
+            mpv = float('inf')
+            strikes_list = sorted(strike_pain.keys())
+            for st in strikes_list:
+                pain = 0
+                for ost in strikes_list:
+                    if ost < st:
+                        pain += strike_pain[ost]["ce_oi"] * (st - ost)
+                    elif ost > st:
+                        pain += strike_pain[ost]["pe_oi"] * (ost - st)
+                if pain < mpv:
+                    mpv = pain
+                    mp = st
+            return {
+                "totalCEBuyQty": total_ce_buy, "totalPEBuyQty": total_pe_buy,
+                "totalCESellQty": total_ce_sell, "totalPESellQty": total_pe_sell,
+                "pcr": pcr, "maxPain": mp,
+                "netCEOI": net_ce_oi, "netPEOI": net_pe_oi,
+                "expiry": expiry,
+            }
+
+        # ── 3 & 4. Stock quotes for NIFTY50 (predictions + premarket) ──
+        def fetch_nifty50_quotes(session):
+            params = [("i", f"NSE:{sym}") for sym in NIFTY50]
+            return _fetch_quotes(params, session)
+
+        # ── 5. Gold vs Nifty historical ──
+        def fetch_gold_vs_nifty(session):
+            to_date = datetime.now().strftime("%Y-%m-%d")
+            from_date = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+            nifty_candles, _ = fetch_historical_for(session, "NIFTY 50", from_date, to_date)
+            gold_candles, _ = fetch_historical_for(session, "GOLDBEES", from_date, to_date)
+            result = {"dates": [], "nifty": [], "gold": []}
+            if nifty_candles and gold_candles:
+                # Trim to 30 most recent days max
+                nc = nifty_candles[-30:]
+                gc = gold_candles[-30:]
+                n_base = nc[0][4] if nc else 1  # close price
+                g_base = gc[0][4] if gc else 1
+                min_len = min(len(nc), len(gc))
+                for i in range(min_len):
+                    result["dates"].append(nc[i][0][:10] if isinstance(nc[i][0], str) else str(nc[i][0])[:10])
+                    result["nifty"].append(round((nc[i][4] / n_base - 1) * 100, 2) if n_base > 0 else 0)
+                    result["gold"].append(round((gc[i][4] / g_base - 1) * 100, 2) if g_base > 0 else 0)
+            return result
+
+        # ── Parallel fetch: indices, nifty options, banknifty options, nifty50 quotes, gold vs nifty ──
+        try:
+            fut_indices = loop.run_in_executor(pool, fetch_indices, s)
+            fut_nifty_opts = loop.run_in_executor(pool, fetch_option_data, "NIFTY", s)
+            fut_bn_opts = loop.run_in_executor(pool, fetch_option_data, "BANKNIFTY", s)
+            fut_stocks = loop.run_in_executor(pool, fetch_nifty50_quotes, s)
+            fut_gold = loop.run_in_executor(pool, fetch_gold_vs_nifty, s)
+
+            indices_data, nifty_opts, bn_opts, stocks_data, gold_data = await tornado.gen.multi([
+                fut_indices, fut_nifty_opts, fut_bn_opts, fut_stocks, fut_gold
+            ])
+        except Exception as e:
+            indices_data = {}
+            nifty_opts = None
+            bn_opts = None
+            stocks_data = {}
+            gold_data = {"dates": [], "nifty": [], "gold": []}
+
+        # ── 1. Indices result ──
+        try:
+            idx_result = {}
+            for key, info in indices_data.items():
+                name = key.replace("NSE:", "").replace("BSE:", "")
+                idx_result[name] = {
+                    "last_price": info.get("last_price", 0),
+                    "change": info.get("net_change", 0),
+                    "change_pct": round(info.get("net_change", 0) / max(info.get("ohlc", {}).get("close", 1), 1) * 100, 2),
+                    "ohlc": info.get("ohlc", {}),
+                }
+            response["indices"] = idx_result
+        except:
+            response["indices"] = {}
+
+        # ── 2. Options data ──
+        response["niftyOptions"] = nifty_opts or {
+            "totalCEBuyQty": 0, "totalPEBuyQty": 0, "totalCESellQty": 0,
+            "totalPESellQty": 0, "pcr": 0, "maxPain": 0, "netCEOI": 0, "netPEOI": 0
+        }
+        response["bankniftyOptions"] = bn_opts or {
+            "totalCEBuyQty": 0, "totalPEBuyQty": 0, "totalCESellQty": 0,
+            "totalPESellQty": 0, "pcr": 0, "maxPain": 0, "netCEOI": 0, "netPEOI": 0
+        }
+
+        # ── 3. Stock Predictions (math-based) ──
+        likely_rise = []
+        likely_fall = []
+        all_stocks_live = []
+        pre_market_positive = []
+        total_buy_qty = 0
+        total_sell_qty = 0
+        advances = declines = unchanged = 0
+        total_volume = 0
+        change_sum = 0
+        stock_count = 0
+
+        try:
+            for key, info in stocks_data.items():
+                sym = key.replace("NSE:", "")
+                ltp = info.get("last_price", 0)
+                avg_price = info.get("average_price", 0)
+                buy_qty = info.get("buy_quantity", 0)
+                sell_qty = info.get("sell_quantity", 0)
+                volume = info.get("volume", 0)
+                oi = info.get("oi", 0)
+                ohlc = info.get("ohlc", {})
+                prev_close = ohlc.get("close", 0)
+                day_open = ohlc.get("open", 0)
+                day_high = ohlc.get("high", 0)
+                day_low = ohlc.get("low", 0)
+                chg_pct = ((ltp - prev_close) / prev_close * 100) if prev_close > 0 else 0
+
+                total_buy_qty += buy_qty
+                total_sell_qty += sell_qty
+                total_volume += volume
+                change_sum += chg_pct
+                stock_count += 1
+
+                if chg_pct > 0.05:
+                    advances += 1
+                elif chg_pct < -0.05:
+                    declines += 1
+                else:
+                    unchanged += 1
+
+                # ── Prediction score calculation ──
+                score = 0
+                reasons = []
+
+                # VWAP deviation
+                if avg_price > 0:
+                    vwap_dev = (ltp - avg_price) / avg_price * 100
+                    if vwap_dev > 0.3:
+                        score += min(vwap_dev * 8, 25)
+                        reasons.append("above VWAP")
+                    elif vwap_dev < -0.3:
+                        score -= min(abs(vwap_dev) * 8, 25)
+                        reasons.append("below VWAP")
+                else:
+                    vwap_dev = 0
+
+                # Buy/Sell ratio
+                bs_ratio = buy_qty / sell_qty if sell_qty > 0 else 1
+                if bs_ratio > 1.2:
+                    score += min((bs_ratio - 1) * 40, 25)
+                    reasons.append("strong buying")
+                elif bs_ratio < 0.8:
+                    score -= min((1 - bs_ratio) * 40, 25)
+                    reasons.append("strong selling")
+
+                # Price vs open (intraday momentum)
+                if day_open > 0:
+                    open_dev = (ltp - day_open) / day_open * 100
+                    if open_dev > 0.2:
+                        score += min(open_dev * 6, 20)
+                        reasons.append("above open")
+                    elif open_dev < -0.2:
+                        score -= min(abs(open_dev) * 6, 20)
+                        reasons.append("below open")
+
+                # Day's range position: (price-low)/(high-low)
+                day_range = day_high - day_low
+                if day_range > 0:
+                    range_pos = (ltp - day_low) / day_range
+                    if range_pos > 0.7:
+                        score += 15
+                        reasons.append("near day high")
+                    elif range_pos < 0.3:
+                        score -= 15
+                        reasons.append("near day low")
+                else:
+                    range_pos = 0.5
+
+                # Change from previous close
+                if chg_pct > 0.5:
+                    score += min(chg_pct * 3, 15)
+                elif chg_pct < -0.5:
+                    score -= min(abs(chg_pct) * 3, 15)
+
+                score = round(score, 1)
+
+                stock_entry = {
+                    "symbol": sym, "sector": STOCK_SECTOR.get(sym, "Other"),
+                    "ltp": ltp, "change": round(chg_pct, 2),
+                    "open": day_open, "high": day_high, "low": day_low,
+                    "prevClose": prev_close, "volume": volume,
+                    "buyQty": buy_qty, "sellQty": sell_qty,
+                    "bsRatio": round(bs_ratio, 2),
+                    "vwapDev": round(vwap_dev, 2),
+                    "predictionScore": score,
+                    "reasons": reasons,
+                }
+                all_stocks_live.append(stock_entry)
+
+                if score > 10:
+                    likely_rise.append(stock_entry)
+                elif score < -10:
+                    likely_fall.append(stock_entry)
+
+                # ── 4. Pre-Market Positive ──
+                if prev_close > 0 and chg_pct > 1.0:
+                    pre_market_positive.append({
+                        "symbol": sym, "ltp": ltp, "prevClose": prev_close,
+                        "change": round(chg_pct, 2),
+                    })
+
+            likely_rise.sort(key=lambda x: x["predictionScore"], reverse=True)
+            likely_fall.sort(key=lambda x: x["predictionScore"])
+        except:
+            pass
+
+        response["predictions"] = {
+            "likely_to_rise": likely_rise,
+            "likely_to_fall": likely_fall,
+        }
+        response["preMarketPositive"] = sorted(pre_market_positive, key=lambda x: x["change"], reverse=True)
+        response["allStocksLive"] = all_stocks_live
+
+        # ── 5. Gold vs Nifty ──
+        response["goldVsNifty"] = gold_data
+
+        # ── 6. Real-time Signals ──
+        signals = []
+        try:
+            nifty_pcr = nifty_opts["pcr"] if nifty_opts else 0
+            vix_data = indices_data.get("NSE:INDIA VIX", {})
+            vix = vix_data.get("last_price", 0) if vix_data else 0
+            market_bs = round(total_buy_qty / max(total_sell_qty, 1), 2)
+
+            if nifty_pcr > 1 and vix < 15 and advances > declines:
+                signals.append({"signal": "NIFTY bullish", "type": "bullish",
+                                "detail": f"PCR={nifty_pcr}, VIX={vix}, A/D={advances}/{declines}"})
+            if nifty_pcr < 0.7 and vix > 20:
+                signals.append({"signal": "NIFTY bearish", "type": "bearish",
+                                "detail": f"PCR={nifty_pcr}, VIX={vix}"})
+            if vix > 20:
+                signals.append({"signal": "High volatility warning", "type": "warning",
+                                "detail": f"VIX={vix}"})
+            if market_bs > 1.2:
+                signals.append({"signal": "Institutional buying", "type": "bullish",
+                                "detail": f"Market Buy/Sell ratio={market_bs}"})
+            if market_bs < 0.8:
+                signals.append({"signal": "Institutional selling", "type": "bearish",
+                                "detail": f"Market Buy/Sell ratio={market_bs}"})
+
+            # Check individual stocks for strong buy candidates
+            for st in all_stocks_live:
+                is_accumulation = st.get("bsRatio", 1) > 1.2 and st.get("vwapDev", 0) > 0
+                is_oversold = st.get("change", 0) < -2  # proxy for RSI oversold without historical data
+                if is_accumulation and is_oversold:
+                    signals.append({"signal": f"{st['symbol']} strong buy candidate", "type": "strong_buy",
+                                    "detail": f"Smart money accumulation + oversold (chg={st['change']}%)"})
+        except:
+            pass
+
+        response["signals"] = signals
+
+        # ── 7. Market Internals ──
+        avg_change = round(change_sum / max(stock_count, 1), 2)
+        response["marketInternals"] = {
+            "advances": advances, "declines": declines, "unchanged": unchanged,
+            "adRatio": round(advances / max(declines, 1), 2),
+            "totalVolume": total_volume, "avgChange": avg_change,
+            "totalBuyQty": total_buy_qty, "totalSellQty": total_sell_qty,
+            "marketBSRatio": round(total_buy_qty / max(total_sell_qty, 1), 2),
+        }
+
+        cache_set(ck, response, CACHE_TTL_AI)
+        self.write_json_gzip(response)
+
 # ═══════════════════════════════════════════════════════════
 #  APP
 # ═══════════════════════════════════════════════════════════
@@ -1235,6 +1604,7 @@ def make_app():
         (r"/api/risk", RiskHandler),
         (r"/api/optionchain", OptionChainHandler),
         (r"/api/constituents", IndexConstituentsHandler),
+        (r"/api/aianalysis", AIAnalysisHandler),
     ], cookie_secret=hashlib.sha256(os.urandom(32)).hexdigest(), debug=True)
 
 if __name__ == "__main__":

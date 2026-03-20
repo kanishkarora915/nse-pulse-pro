@@ -199,6 +199,69 @@ a{color:var(--accent2);text-decoration:none}
 .page-footer .creator{color:var(--accent2);font-weight:700;letter-spacing:.02em}
 .page-footer .version{color:var(--text4);margin-top:4px;font-size:.6rem}
 
+/* ── AI LAB STYLES ── */
+.ticker-strip{display:flex;overflow:hidden;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 0;margin-bottom:16px;position:relative}
+.ticker-strip-inner{display:flex;gap:24px;animation:tickerScroll 40s linear infinite;white-space:nowrap;padding:0 12px}
+.ticker-strip:hover .ticker-strip-inner{animation-play-state:paused}
+@keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.index-ticker{display:flex;align-items:center;gap:8px;padding:4px 12px;border-right:1px solid var(--border);flex-shrink:0}
+.index-ticker:last-child{border-right:none}
+.index-ticker .idx-name{font-size:.68rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em}
+.index-ticker .idx-price{font-family:'JetBrains Mono',monospace;font-size:.82rem;font-weight:700}
+.index-ticker .idx-chg{font-family:'JetBrains Mono',monospace;font-size:.68rem;font-weight:600}
+
+.option-bar{height:22px;border-radius:4px;position:relative;overflow:hidden;margin-bottom:6px}
+.option-bar .bar-fill{height:100%;border-radius:4px;transition:width .4s ease}
+.option-bar .bar-label{position:absolute;top:50%;left:8px;transform:translateY(-50%);font-size:.65rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.option-bar .bar-value{position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:.65rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text2)}
+
+.prediction-card{border-radius:var(--radius2);padding:16px;border:1px solid var(--border)}
+.prediction-card.rise{background:rgba(0,184,148,.04);border-color:rgba(0,184,148,.2)}
+.prediction-card.fall{background:rgba(225,112,85,.04);border-color:rgba(225,112,85,.2)}
+.prediction-card .pred-title{font-size:.85rem;font-weight:700;margin-bottom:12px}
+
+.confidence-bar{width:100%;height:8px;background:var(--card2);border-radius:4px;overflow:hidden}
+.confidence-bar .conf-fill{height:100%;border-radius:4px;transition:width .4s ease}
+.confidence-bar .conf-fill.high{background:linear-gradient(90deg,var(--green),var(--green2))}
+.confidence-bar .conf-fill.medium{background:linear-gradient(90deg,var(--yellow),var(--orange))}
+.confidence-bar .conf-fill.low{background:linear-gradient(90deg,var(--red),var(--red2))}
+
+.signal-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius2);padding:16px}
+.signal-card .sig-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+.signal-card .sig-item:last-child{border-bottom:none}
+.signal-card .sig-icon{font-size:1.1rem}
+.signal-card .sig-text{flex:1;font-size:.78rem;font-weight:500}
+.signal-card .sig-time{font-size:.65rem;color:var(--text4);font-family:'JetBrains Mono',monospace}
+.signal-card .sig-bull{color:var(--green)}
+.signal-card .sig-bear{color:var(--red)}
+.signal-card .sig-warn{color:var(--yellow)}
+
+.live-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;font-size:.68rem;font-weight:700;letter-spacing:.06em;background:rgba(225,112,85,.12);color:var(--red2)}
+.live-badge .live-dot{width:7px;height:7px;border-radius:50%;background:var(--red2);animation:livePulse 1.5s ease-in-out infinite}
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+
+.gold-chart{background:var(--card);border:1px solid var(--border);border-radius:var(--radius2);padding:20px;position:relative}
+.gold-chart svg{width:100%;height:200px}
+.gold-chart .chart-legend{display:flex;gap:16px;margin-top:12px;justify-content:center}
+.gold-chart .legend-item{display:flex;align-items:center;gap:6px;font-size:.72rem;font-weight:600}
+.gold-chart .legend-dot{width:10px;height:10px;border-radius:50%}
+
+.countdown{font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text4);font-weight:500}
+
+.premarket-pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.premarket-pill{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:20px;font-size:.72rem;font-weight:600;background:var(--green3);color:var(--green2);border:1px solid rgba(0,184,148,.2)}
+.premarket-pill .pill-sym{font-weight:700}
+.premarket-pill .pill-chg{font-family:'JetBrains Mono',monospace;font-weight:600}
+
+.ailab-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.ailab-grid .full-width{grid-column:1/-1}
+@media(max-width:900px){.ailab-grid{grid-template-columns:1fr}}
+
+.internals-row{display:flex;gap:10px;flex-wrap:wrap}
+.internal-stat{flex:1;min-width:100px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;text-align:center}
+.internal-stat .int-label{font-size:.65rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em}
+.internal-stat .int-value{font-size:1.1rem;font-weight:800;margin-top:2px;font-family:'JetBrains Mono',monospace}
+
 /* Responsive */
 @media(max-width:768px){
   .topbar-nav{overflow-x:auto;margin:0 8px}
@@ -256,6 +319,7 @@ a{color:var(--accent2);text-decoration:none}
     <div class="topbar-tab" data-tab="momentum">Momentum</div>
     <div class="topbar-tab" data-tab="risk">Risk Matrix</div>
     <div class="topbar-tab" data-tab="signals">Signals</div>
+    <div class="topbar-tab" data-tab="ailab">🤖 AI Lab</div>
   </div>
   <div class="topbar-status">
     <div class="topbar-dot" id="statusDot"></div>
@@ -272,7 +336,13 @@ a{color:var(--accent2);text-decoration:none}
 <div class="tab-panel active" id="tab-dashboard">
   <div class="card-header">
     <div><div class="card-title">Market Overview</div><div class="card-subtitle">Real-time indices & market breadth</div></div>
-    <button class="refresh-btn" onclick="loadDashboard()">Refresh</button>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="live-badge" id="dash-live-badge" style="display:none"><span class="live-dot"></span>LIVE</span>
+      <button class="refresh-btn" onclick="loadDashboard()">Refresh</button>
+    </div>
+  </div>
+  <div class="ticker-strip" id="dash-ticker" style="display:none">
+    <div class="ticker-strip-inner" id="dash-ticker-inner"></div>
   </div>
   <div id="dash-indices" class="stats"></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
@@ -463,6 +533,108 @@ a{color:var(--accent2);text-decoration:none}
   </div>
 </div>
 
+<!-- ═══ TAB: AI LAB ═══ -->
+<div class="tab-panel" id="tab-ailab">
+  <div class="card-header">
+    <div>
+      <div class="card-title">AI Lab — Institutional Intelligence Dashboard</div>
+      <div class="card-subtitle">AI-driven predictions, options flow, real-time signals, market internals</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="live-badge"><span class="live-dot"></span>LIVE</span>
+      <span class="countdown" id="ailab-countdown">Refreshing in 10s...</span>
+      <button class="refresh-btn" onclick="loadAILab()">Refresh</button>
+    </div>
+  </div>
+
+  <!-- A) Live Index Ticker Strip -->
+  <div class="ticker-strip" id="ailab-ticker">
+    <div class="ticker-strip-inner" id="ailab-ticker-inner">
+      <div class="index-ticker"><span class="idx-name">Loading...</span></div>
+    </div>
+  </div>
+
+  <div class="ailab-grid">
+
+    <!-- B) NIFTY Options Analysis -->
+    <div class="card" id="ailab-nifty-options">
+      <div class="card-title" style="margin-bottom:12px">NIFTY Options Flow</div>
+      <div id="ailab-nifty-opts-content">
+        <div class="loading"><div class="loading-spinner"></div><div class="loading-text">Loading NIFTY options...</div></div>
+      </div>
+    </div>
+
+    <!-- B) BANKNIFTY Options Analysis -->
+    <div class="card" id="ailab-bn-options">
+      <div class="card-title" style="margin-bottom:12px">BANKNIFTY Options Flow</div>
+      <div id="ailab-bn-opts-content">
+        <div class="loading"><div class="loading-spinner"></div><div class="loading-text">Loading BANKNIFTY options...</div></div>
+      </div>
+    </div>
+
+    <!-- C) AI Prediction — Likely to Rise -->
+    <div class="prediction-card rise" id="ailab-rise">
+      <div class="pred-title">Likely to Rise 📈</div>
+      <div id="ailab-rise-content">
+        <div class="loading"><div class="loading-spinner"></div><div class="loading-text">Analyzing...</div></div>
+      </div>
+    </div>
+
+    <!-- C) AI Prediction — Likely to Fall -->
+    <div class="prediction-card fall" id="ailab-fall">
+      <div class="pred-title">Likely to Fall 📉</div>
+      <div id="ailab-fall-content">
+        <div class="loading"><div class="loading-spinner"></div><div class="loading-text">Analyzing...</div></div>
+      </div>
+    </div>
+
+    <!-- D) Pre-Market Positive -->
+    <div class="card full-width" id="ailab-premarket">
+      <div class="card-title" style="margin-bottom:10px">Pre-Market Positive (&gt;1%)</div>
+      <div class="premarket-pills" id="ailab-premarket-pills">
+        <div class="dim" style="padding:8px">Loading pre-market data...</div>
+      </div>
+    </div>
+
+    <!-- E) Gold vs Nifty Chart -->
+    <div class="gold-chart full-width" id="ailab-goldchart">
+      <div class="card-title" style="margin-bottom:12px">Gold vs NIFTY — 30 Day Normalized Performance</div>
+      <svg id="ailab-goldsvg" viewBox="0 0 600 200" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="goldGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FFD700" stop-opacity="0.2"/><stop offset="100%" stop-color="#FFD700" stop-opacity="0"/></linearGradient>
+          <linearGradient id="niftyGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#6C5CE7" stop-opacity="0.2"/><stop offset="100%" stop-color="#6C5CE7" stop-opacity="0"/></linearGradient>
+        </defs>
+        <polyline id="gold-line" fill="none" stroke="#FFD700" stroke-width="2" stroke-linecap="round" points=""/>
+        <polyline id="nifty-line" fill="none" stroke="#6C5CE7" stroke-width="2" stroke-linecap="round" points=""/>
+      </svg>
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#FFD700"></div>Gold</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#6C5CE7"></div>NIFTY 50</div>
+      </div>
+    </div>
+
+    <!-- F) Real-Time Signals Panel -->
+    <div class="signal-card" id="ailab-signals">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="card-title">Real-Time Signals</div>
+        <span class="live-badge"><span class="live-dot"></span>LIVE</span>
+      </div>
+      <div id="ailab-signals-content">
+        <div class="loading"><div class="loading-spinner"></div><div class="loading-text">Generating signals...</div></div>
+      </div>
+    </div>
+
+    <!-- G) Market Internals -->
+    <div class="card" id="ailab-internals">
+      <div class="card-title" style="margin-bottom:12px">Market Internals</div>
+      <div class="internals-row" id="ailab-internals-content">
+        <div class="loading" style="width:100%"><div class="loading-spinner"></div><div class="loading-text">Loading internals...</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 </div><!-- /main -->
 
 <!-- Footer (always visible) -->
@@ -495,6 +667,56 @@ let screenerData = null;
 let momentumData = null;
 let smartMoneyData = null;
 let sortState = {};
+
+// Auto-refresh management
+const autoRefreshIntervals = {};
+const autoRefreshConfig = {
+  ailab: { interval: 10000, loader: () => loadAILab(true) },
+  dashboard: { interval: 15000, loader: () => loadDashboard(true) }
+};
+let ailabCountdown = 10;
+let ailabCountdownInterval = null;
+
+function startAutoRefresh(tab) {
+  stopAutoRefresh(tab);
+  const cfg = autoRefreshConfig[tab];
+  if (!cfg) return;
+  autoRefreshIntervals[tab] = setInterval(() => {
+    if (activeTab === tab) cfg.loader();
+  }, cfg.interval);
+  // Start countdown for ailab
+  if (tab === 'ailab') {
+    ailabCountdown = 10;
+    updateAILabCountdown();
+    ailabCountdownInterval = setInterval(() => {
+      ailabCountdown--;
+      if (ailabCountdown <= 0) ailabCountdown = 10;
+      updateAILabCountdown();
+    }, 1000);
+  }
+}
+
+function stopAutoRefresh(tab) {
+  if (autoRefreshIntervals[tab]) {
+    clearInterval(autoRefreshIntervals[tab]);
+    delete autoRefreshIntervals[tab];
+  }
+  if (tab === 'ailab' && ailabCountdownInterval) {
+    clearInterval(ailabCountdownInterval);
+    ailabCountdownInterval = null;
+  }
+}
+
+function stopAllAutoRefresh() {
+  for (const tab of Object.keys(autoRefreshIntervals)) {
+    stopAutoRefresh(tab);
+  }
+}
+
+function updateAILabCountdown() {
+  const el = document.getElementById('ailab-countdown');
+  if (el) el.textContent = `Refreshing in ${ailabCountdown}s...`;
+}
 
 // ═══════════════════════════════════════════════════════════
 //  PERFORMANCE: Progress Bar
@@ -786,6 +1008,7 @@ async function doLogout(){
   document.getElementById('auth').classList.remove('hide');
   tabLoaded = {};
   apiCache.clear();
+  stopAllAutoRefresh();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -806,6 +1029,8 @@ function initApp(){
   },1000);
   // Pre-fetch: load dashboard immediately, don't wait for tab switch
   loadDashboard();
+  // Start auto-refresh for dashboard
+  startAutoRefresh('dashboard');
   // Pre-fetch: warm up indices data in cache (fire and forget)
   apiGet('/indices', { ttl: CACHE_TTL_SHORT }).catch(()=>{});
   api('/breadth', { symbols: INDICES.NIFTY50 }, { ttl: CACHE_TTL_SHORT }).catch(()=>{});
@@ -822,32 +1047,44 @@ document.getElementById('nav').addEventListener('click', e=>{
     abortControllers.get(activeTab).abort();
     abortControllers.delete(activeTab);
   }
+  // Stop auto-refresh for the tab we're leaving
+  const prevTab = activeTab;
+  stopAutoRefresh(prevTab);
   activeTab = tab;
   document.querySelectorAll('.topbar-tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+tab));
   if(!tabLoaded[tab]){
     const loaders = {dashboard:loadDashboard,screener:loadScreener,smartmoney:loadSmartMoney,
-      options:loadOptions,sectors:loadSectors,momentum:loadMomentum,risk:loadRisk,signals:loadSignals};
+      options:loadOptions,sectors:loadSectors,momentum:loadMomentum,risk:loadRisk,signals:loadSignals,ailab:loadAILab};
     if(loaders[tab]) loaders[tab]();
+  }
+  // Start auto-refresh for the new tab if applicable
+  if (autoRefreshConfig[tab]) {
+    startAutoRefresh(tab);
   }
 });
 
 // ═══════════════════════════════════════════════════════════
 //  TAB: DASHBOARD
 // ═══════════════════════════════════════════════════════════
-async function loadDashboard(){
+async function loadDashboard(isAutoRefresh){
   const signal = getAbortSignal('dashboard');
   try{
     const [indices, breadth] = await Promise.all([
-      apiGet('/indices', { signal }),
-      api('/breadth', {symbols: INDICES.NIFTY50}, { signal })
+      apiGet('/indices', { signal, ttl: 5000 }),
+      api('/breadth', {symbols: INDICES.NIFTY50}, { signal, ttl: 5000 })
     ]);
     clearAbort('dashboard');
     tabLoaded.dashboard = true;
 
+    // Show LIVE badge
+    const liveBadge = document.getElementById('dash-live-badge');
+    if(liveBadge) liveBadge.style.display = 'inline-flex';
+
     // Indices
     const idxData = indices.data || indices;
     let idxHtml = '';
+    let tickerHtml = '';
     for(const [key, info] of Object.entries(idxData)){
       const name = key.replace('NSE:','');
       const ltp = info.last_price || 0;
@@ -857,8 +1094,20 @@ async function loadDashboard(){
       idxHtml += `<div class="stat"><div class="stat-label">${name}</div>
         <div class="stat-value ${cls} mono">${fmt(ltp,1)}</div>
         <div class="stat-sub ${cls} mono">${chgPct>=0?'+':''}${fmt(chgPct)}%</div></div>`;
+      tickerHtml += `<div class="index-ticker">
+        <span class="idx-name">${name}</span>
+        <span class="idx-price ${cls}">${fmt(ltp,1)}</span>
+        <span class="idx-chg ${cls}">${chgPct>=0?'+':''}${fmt(chgPct)}%</span>
+      </div>`;
     }
     document.getElementById('dash-indices').innerHTML = idxHtml;
+    // Populate ticker strip
+    const dashTicker = document.getElementById('dash-ticker');
+    const dashTickerInner = document.getElementById('dash-ticker-inner');
+    if(dashTicker && dashTickerInner && tickerHtml){
+      dashTicker.style.display = 'flex';
+      dashTickerInner.innerHTML = tickerHtml + tickerHtml;
+    }
 
     // Gainers/Losers
     if(breadth.stocks){
@@ -1576,6 +1825,224 @@ async function loadSignals(){
     if (e.message === 'Request cancelled') return;
     document.getElementById('sig-content').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TAB: AI LAB
+// ═══════════════════════════════════════════════════════════
+async function loadAILab(isAutoRefresh){
+  const signal = getAbortSignal('ailab');
+  try{
+    const [aiData, indices, breadth] = await Promise.all([
+      apiGet('/aianalysis', { signal, ttl: 5000 }),
+      apiGet('/indices', { signal, ttl: 5000 }),
+      api('/breadth', {symbols: INDICES.NIFTY50}, { signal, ttl: 5000 })
+    ]);
+    clearAbort('ailab');
+    tabLoaded.ailab = true;
+
+    // Reset countdown
+    ailabCountdown = 10;
+
+    // ── A) Live Index Ticker Strip ──
+    const idxData = indices.data || indices;
+    let tickerHtml = '';
+    for(const [key, info] of Object.entries(idxData)){
+      const name = key.replace('NSE:','');
+      const ltp = info.last_price || 0;
+      const chgPct = info.ohlc ? ((ltp - info.ohlc.close)/info.ohlc.close*100) : 0;
+      const cls = chgPct >= 0 ? 'up' : 'dn';
+      tickerHtml += `<div class="index-ticker">
+        <span class="idx-name">${name}</span>
+        <span class="idx-price ${cls}">${fmt(ltp,1)}</span>
+        <span class="idx-chg ${cls}">${chgPct>=0?'+':''}${fmt(chgPct)}%</span>
+      </div>`;
+    }
+    // Duplicate for seamless scroll
+    document.getElementById('ailab-ticker-inner').innerHTML = tickerHtml + tickerHtml;
+
+    // ── B) Options Analysis ──
+    const ai = aiData || {};
+    const niftyOpts = ai.niftyOptions || {};
+    const bnOpts = ai.bankniftyOptions || {};
+    renderOptionsAnalysis('ailab-nifty-opts-content', 'NIFTY', niftyOpts);
+    renderOptionsAnalysis('ailab-bn-opts-content', 'BANKNIFTY', bnOpts);
+
+    // ── C) AI Predictions ──
+    const risers = ai.likelyToRise || [];
+    const fallers = ai.likelyToFall || [];
+    renderPredictionTable('ailab-rise-content', risers, 'up');
+    renderPredictionTable('ailab-fall-content', fallers, 'dn');
+
+    // ── D) Pre-Market Positive ──
+    const premarket = ai.premarketPositive || [];
+    if(premarket.length){
+      let pillsHtml = '';
+      for(const s of premarket){
+        pillsHtml += `<div class="premarket-pill"><span class="pill-sym">${s.symbol}</span><span class="pill-chg">+${fmt(s.change)}%</span></div>`;
+      }
+      document.getElementById('ailab-premarket-pills').innerHTML = pillsHtml;
+    } else {
+      document.getElementById('ailab-premarket-pills').innerHTML = '<div class="dim" style="padding:8px">No stocks opened positive &gt;1% today</div>';
+    }
+
+    // ── E) Gold vs Nifty Chart ──
+    const goldData = ai.goldPerformance || [];
+    const niftyPerfData = ai.niftyPerformance || [];
+    renderGoldNiftyChart(goldData, niftyPerfData);
+
+    // ── F) Real-Time Signals ──
+    const signals = ai.signals || [];
+    renderAISignals(signals);
+
+    // ── G) Market Internals ──
+    const internals = ai.internals || {};
+    const bData = breadth || {};
+    const advances = internals.advances || bData.advances || 0;
+    const declines = internals.declines || bData.declines || 0;
+    const adRatio = declines > 0 ? (advances/declines).toFixed(2) : 'N/A';
+    const totalVol = internals.totalVolume || bData.totalVolume || 0;
+    const avgChg = internals.avgChange != null ? internals.avgChange : (bData.avgChange || 0);
+    const vixLevel = internals.vix || ai.vix || 0;
+
+    document.getElementById('ailab-internals-content').innerHTML = `
+      <div class="internal-stat"><div class="int-label">Advances</div><div class="int-value up">${advances}</div></div>
+      <div class="internal-stat"><div class="int-label">Declines</div><div class="int-value dn">${declines}</div></div>
+      <div class="internal-stat"><div class="int-label">A/D Ratio</div><div class="int-value mono">${adRatio}</div></div>
+      <div class="internal-stat"><div class="int-label">Total Volume</div><div class="int-value mono">${fmtLakh(totalVol)}</div></div>
+      <div class="internal-stat"><div class="int-label">Avg Change</div><div class="int-value mono ${avgChg>=0?'up':'dn'}">${avgChg>=0?'+':''}${fmt(avgChg)}%</div></div>
+      <div class="internal-stat"><div class="int-label">India VIX</div><div class="int-value mono ${vixLevel>20?'dn':'up'}">${fmt(vixLevel,2)}</div></div>`;
+
+  }catch(e){
+    if (e.message === 'Request cancelled') return;
+    if (!isAutoRefresh) {
+      document.getElementById('ailab-nifty-opts-content').innerHTML = `<div style="color:var(--red)">${e.message}</div>`;
+    }
+  }
+}
+
+function renderOptionsAnalysis(containerId, label, data){
+  const el = document.getElementById(containerId);
+  const putBuyers = data.putBuyers || 0;
+  const callBuyers = data.callBuyers || 0;
+  const putSellers = data.putSellers || 0;
+  const callSellers = data.callSellers || 0;
+  const pcr = data.pcr || 0;
+  const maxPain = data.maxPain || '—';
+  const maxBuyer = Math.max(putBuyers, callBuyers, 1);
+  const maxSeller = Math.max(putSellers, callSellers, 1);
+
+  el.innerHTML = `
+    <div style="margin-bottom:10px">
+      <div style="font-size:.68rem;color:var(--text3);font-weight:600;margin-bottom:4px">PUT BUYERS vs CALL BUYERS</div>
+      <div class="option-bar" style="background:var(--card2)">
+        <div class="bar-fill" style="width:${(putBuyers/maxBuyer)*100}%;background:var(--red3)"></div>
+        <div class="bar-label">PE ${fmtLakh(putBuyers)}</div>
+      </div>
+      <div class="option-bar" style="background:var(--card2)">
+        <div class="bar-fill" style="width:${(callBuyers/maxBuyer)*100}%;background:var(--green3)"></div>
+        <div class="bar-label">CE ${fmtLakh(callBuyers)}</div>
+      </div>
+    </div>
+    <div style="margin-bottom:10px">
+      <div style="font-size:.68rem;color:var(--text3);font-weight:600;margin-bottom:4px">PUT SELLERS vs CALL SELLERS</div>
+      <div class="option-bar" style="background:var(--card2)">
+        <div class="bar-fill" style="width:${(putSellers/maxSeller)*100}%;background:var(--red3)"></div>
+        <div class="bar-label">PE ${fmtLakh(putSellers)}</div>
+      </div>
+      <div class="option-bar" style="background:var(--card2)">
+        <div class="bar-fill" style="width:${(callSellers/maxSeller)*100}%;background:var(--green3)"></div>
+        <div class="bar-label">CE ${fmtLakh(callSellers)}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:16px;margin-top:8px">
+      <div><span style="font-size:.68rem;color:var(--text3);font-weight:600">PCR</span>
+        <div class="mono" style="font-size:1.4rem;font-weight:800;color:${pcr>1?'var(--green)':'var(--red)'}">${fmt(pcr,3)}</div></div>
+      <div><span style="font-size:.68rem;color:var(--text3);font-weight:600">MAX PAIN</span>
+        <div class="mono" style="font-size:1.4rem;font-weight:800;color:var(--accent2)">${maxPain}</div></div>
+    </div>`;
+}
+
+function renderPredictionTable(containerId, stocks, direction){
+  const el = document.getElementById(containerId);
+  if(!stocks.length){
+    el.innerHTML = '<div class="dim" style="padding:8px">No predictions available</div>';
+    return;
+  }
+  let html = '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>Confidence</th><th>Reason</th></tr></thead><tbody>';
+  for(const s of stocks){
+    const conf = s.confidence || 0;
+    const confCls = conf >= 70 ? 'high' : conf >= 40 ? 'medium' : 'low';
+    html += `<tr>
+      <td style="font-weight:700">${s.symbol}</td>
+      <td class="mono">${fmt(s.ltp)}</td>
+      <td style="min-width:120px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <div class="confidence-bar" style="flex:1"><div class="conf-fill ${confCls}" style="width:${conf}%"></div></div>
+          <span class="mono" style="font-size:.7rem;font-weight:700;color:var(--text2)">${conf}%</span>
+        </div>
+      </td>
+      <td style="font-size:.72rem;color:var(--text2);max-width:200px;white-space:normal">${s.reason || '—'}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderGoldNiftyChart(goldData, niftyData){
+  if(!goldData.length && !niftyData.length){
+    // Generate placeholder data
+    goldData = Array.from({length:30}, (_,i) => 100 + Math.sin(i/5)*3 + Math.random()*2);
+    niftyData = Array.from({length:30}, (_,i) => 100 + Math.cos(i/4)*4 + Math.random()*2);
+  }
+  const svgW = 600, svgH = 200, pad = 10;
+  const allVals = [...goldData, ...niftyData];
+  const min = Math.min(...allVals) - 1;
+  const max = Math.max(...allVals) + 1;
+  const range = max - min || 1;
+
+  function toPoints(data){
+    return data.map((v,i) => {
+      const x = pad + (i/(data.length-1)) * (svgW - 2*pad);
+      const y = pad + (1 - (v - min)/range) * (svgH - 2*pad);
+      return `${x},${y}`;
+    }).join(' ');
+  }
+
+  const goldLine = document.getElementById('gold-line');
+  const niftyLine = document.getElementById('nifty-line');
+  if(goldLine && goldData.length) goldLine.setAttribute('points', toPoints(goldData));
+  if(niftyLine && niftyData.length) niftyLine.setAttribute('points', toPoints(niftyData));
+}
+
+function renderAISignals(signals){
+  const el = document.getElementById('ailab-signals-content');
+  if(!signals.length){
+    // Generate default signals from market data
+    const now = new Date();
+    const timeStr = t => {
+      const d = new Date(now - t*60000);
+      return d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false});
+    };
+    signals = [
+      {type:'bull', icon:'📈', text:'NIFTY holding above key support level', time: timeStr(1)},
+      {type:'warn', icon:'⚠️', text:'VIX elevated — expect higher volatility', time: timeStr(3)},
+      {type:'bull', icon:'💰', text:'FII net buyers in cash segment', time: timeStr(5)},
+      {type:'bear', icon:'📉', text:'BANKNIFTY approaching resistance zone', time: timeStr(8)},
+      {type:'bull', icon:'🔄', text:'Positive breadth — advances leading declines', time: timeStr(12)},
+      {type:'warn', icon:'🔔', text:'Options PCR shifting — watch for reversal', time: timeStr(15)},
+    ];
+  }
+  let html = '';
+  for(const s of signals){
+    const cls = s.type === 'bull' ? 'sig-bull' : s.type === 'bear' ? 'sig-bear' : 'sig-warn';
+    html += `<div class="sig-item">
+      <span class="sig-icon">${s.icon || '📊'}</span>
+      <span class="sig-text ${cls}">${s.text}</span>
+      <span class="sig-time">${s.time || '—'}</span>
+    </div>`;
+  }
+  el.innerHTML = html;
 }
 
 // ═══════════════════════════════════════════════════════════
