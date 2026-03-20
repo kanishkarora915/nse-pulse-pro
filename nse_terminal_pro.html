@@ -1,0 +1,1331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSE Pulse Pro — Institutional Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#06080F;--bg2:#0B0F1A;--card:#0F1420;--card2:#141B2D;--card3:#1A2236;
+  --border:#1C2438;--border2:#2A3550;--border3:#384466;
+  --accent:#6C5CE7;--accent2:#A29BFE;--accent3:#4834D4;
+  --green:#00B894;--green2:#55EFC4;--green3:#0A3D2E;
+  --red:#E17055;--red2:#FF7675;--red3:#3D1A12;
+  --yellow:#FDCB6E;--orange:#E17055;--cyan:#00CEC9;--purple:#A29BFE;
+  --text:#EDF2F7;--text2:#A0AEC0;--text3:#5A6B8A;--text4:#3D4F6F;
+  --radius:8px;--radius2:12px;--radius3:16px;
+  --shadow:0 4px 20px rgba(0,0,0,0.3);
+}
+html{font-size:12.5px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;letter-spacing:0.01em}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+.mono{font-family:'JetBrains Mono',monospace;font-feature-settings:'tnum','zero'}
+.up{color:var(--green)}.dn{color:var(--red)}.dim{color:var(--text3)}.warn{color:var(--yellow)}
+.accent{color:var(--accent2)}
+input,select,button{font-family:inherit}
+a{color:var(--accent2);text-decoration:none}
+
+/* ── AUTH ── */
+#auth{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;
+  background:var(--bg);background-image:
+    radial-gradient(ellipse 60% 40% at 50% 0%,rgba(108,92,231,.08),transparent),
+    radial-gradient(ellipse 40% 30% at 80% 80%,rgba(0,206,201,.04),transparent)}
+#auth.hide{display:none}
+.auth-box{width:420px;max-width:92vw;padding:48px 40px}
+.auth-brand{text-align:center;margin-bottom:40px}
+.auth-brand h1{font-size:2rem;font-weight:800;letter-spacing:-0.03em;
+  background:linear-gradient(135deg,var(--accent2),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.auth-brand p{color:var(--text3);font-size:.85rem;margin-top:6px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
+.auth-tabs{display:flex;gap:2px;margin-bottom:28px;background:var(--card);border-radius:var(--radius);padding:3px}
+.auth-tab{flex:1;padding:10px;text-align:center;cursor:pointer;border-radius:6px;font-size:.82rem;font-weight:600;color:var(--text3);transition:.2s}
+.auth-tab.active{background:var(--accent3);color:#fff}
+.auth-input{width:100%;padding:12px 16px;background:var(--card);border:1px solid var(--border);
+  border-radius:var(--radius);color:var(--text);font-size:.9rem;margin-bottom:12px;outline:none;transition:.2s}
+.auth-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(108,92,231,.15)}
+.auth-input::placeholder{color:var(--text4)}
+.auth-btn{width:100%;padding:13px;background:linear-gradient(135deg,var(--accent),var(--accent3));
+  border:none;border-radius:var(--radius);color:#fff;font-size:.92rem;font-weight:700;cursor:pointer;
+  letter-spacing:.02em;transition:.2s;margin-top:4px}
+.auth-btn:hover{opacity:.9;transform:translateY(-1px)}
+.auth-btn:disabled{opacity:.5;cursor:not-allowed}
+.auth-error{color:var(--red);font-size:.78rem;margin-top:10px;text-align:center}
+.auth-pane{display:none}.auth-pane.active{display:block}
+
+/* ── APP LAYOUT ── */
+#app{display:none;height:100vh;flex-direction:column}
+#app.show{display:flex}
+
+/* Top bar */
+.topbar{display:flex;align-items:center;padding:0 20px;height:48px;background:var(--bg2);
+  border-bottom:1px solid var(--border);flex-shrink:0;gap:16px}
+.topbar-brand{font-size:1rem;font-weight:800;letter-spacing:-0.02em;
+  background:linear-gradient(135deg,var(--accent2),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.topbar-nav{display:flex;gap:1px;flex:1;margin:0 20px}
+.topbar-tab{padding:12px 16px;font-size:.78rem;font-weight:600;color:var(--text3);cursor:pointer;
+  border-bottom:2px solid transparent;transition:.15s;letter-spacing:.02em;white-space:nowrap}
+.topbar-tab:hover{color:var(--text2)}
+.topbar-tab.active{color:var(--accent2);border-bottom-color:var(--accent)}
+.topbar-status{display:flex;align-items:center;gap:6px;font-size:.72rem;color:var(--text3)}
+.topbar-dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.topbar-time{font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--text3)}
+
+/* Main content */
+.main{flex:1;overflow:hidden}
+.tab-panel{display:none;height:100%;overflow-y:auto;padding:20px}
+.tab-panel.active{display:block}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius2);padding:20px;margin-bottom:16px}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.card-title{font-size:.92rem;font-weight:700;letter-spacing:-0.01em}
+.card-subtitle{font-size:.72rem;color:var(--text3);margin-top:2px}
+
+/* Buttons */
+.btn{padding:7px 14px;border-radius:6px;font-size:.75rem;font-weight:600;cursor:pointer;border:1px solid var(--border);
+  background:var(--card2);color:var(--text2);transition:.15s;letter-spacing:.02em}
+.btn:hover{background:var(--card3);color:var(--text)}
+.btn-primary{background:var(--accent3);border-color:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent)}
+.btn-sm{padding:5px 10px;font-size:.7rem}
+.btn-group{display:flex;gap:1px;background:var(--border);border-radius:6px;overflow:hidden}
+.btn-group .btn{border-radius:0;border:none}
+.btn-group .btn.active{background:var(--accent3);color:#fff}
+.refresh-btn{padding:5px 12px;border-radius:6px;font-size:.72rem;font-weight:600;cursor:pointer;
+  border:1px solid var(--border);background:var(--card2);color:var(--text3);transition:.15s}
+.refresh-btn:hover{background:var(--card3);color:var(--text)}
+
+/* Tables */
+.tbl{width:100%;border-collapse:collapse;font-size:.78rem}
+.tbl thead{position:sticky;top:0;z-index:2}
+.tbl th{padding:10px 12px;text-align:left;font-weight:600;color:var(--text3);background:var(--bg2);
+  border-bottom:1px solid var(--border);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;
+  cursor:pointer;white-space:nowrap;user-select:none}
+.tbl th:hover{color:var(--text2)}
+.tbl th.sorted{color:var(--accent2)}
+.tbl th .sort-arrow{margin-left:3px;font-size:.6rem}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+.tbl tr:hover{background:rgba(108,92,231,.04)}
+.tbl .mono{font-weight:500}
+.tbl-wrap{overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 250px);border:1px solid var(--border);border-radius:var(--radius)}
+
+/* Stat pills */
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;min-width:140px;flex:1}
+.stat-label{font-size:.68rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em}
+.stat-value{font-size:1.4rem;font-weight:800;margin-top:4px;font-family:'JetBrains Mono',monospace;letter-spacing:-0.02em}
+.stat-sub{font-size:.68rem;color:var(--text3);margin-top:2px}
+
+/* Controls bar */
+.controls{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.controls select,.controls input[type="date"]{padding:8px 12px;background:var(--card);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);font-size:.8rem;outline:none}
+.controls select:focus,.controls input[type="date"]:focus{border-color:var(--accent)}
+.controls label{font-size:.72rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.date-presets{display:flex;gap:4px}
+.date-preset{padding:5px 10px;border-radius:4px;font-size:.7rem;font-weight:600;cursor:pointer;
+  background:var(--card2);border:1px solid var(--border);color:var(--text3);transition:.15s}
+.date-preset:hover,.date-preset.active{background:var(--accent3);border-color:var(--accent);color:#fff}
+
+/* Badge */
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.65rem;font-weight:700;letter-spacing:.04em}
+.badge-green{background:var(--green3);color:var(--green2)}
+.badge-red{background:var(--red3);color:var(--red2)}
+.badge-neutral{background:var(--card3);color:var(--text3)}
+.badge-accent{background:rgba(108,92,231,.15);color:var(--accent2)}
+
+/* Heatmap */
+.heatmap{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
+.heat-cell{padding:10px 8px;border-radius:6px;text-align:center;cursor:pointer;transition:.15s;border:1px solid transparent}
+.heat-cell:hover{border-color:var(--border2);transform:scale(1.02)}
+.heat-cell .sym{font-size:.72rem;font-weight:700;margin-bottom:2px}
+.heat-cell .val{font-size:.85rem;font-weight:700;font-family:'JetBrains Mono',monospace}
+
+/* Correlation matrix */
+.corr-matrix{overflow-x:auto}
+.corr-matrix table{border-collapse:collapse;font-size:.65rem}
+.corr-matrix th,.corr-matrix td{padding:6px 8px;text-align:center;border:1px solid var(--border);min-width:55px}
+.corr-matrix th{background:var(--card2);font-weight:600;color:var(--text2)}
+.corr-cell{font-family:'JetBrains Mono',monospace;font-weight:600}
+
+/* Loading */
+.loading{text-align:center;padding:60px 20px;color:var(--text3)}
+.loading-spinner{display:inline-block;width:28px;height:28px;border:3px solid var(--border);
+  border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{margin-top:12px;font-size:.8rem;font-weight:500}
+
+/* Sparkline */
+.sparkline{width:80px;height:28px;display:inline-block;vertical-align:middle}
+
+/* Signal tags */
+.signal{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:.65rem;font-weight:700}
+.signal-bull{background:var(--green3);color:var(--green2)}
+.signal-bear{background:var(--red3);color:var(--red2)}
+.signal-neutral{background:var(--card3);color:var(--text3)}
+
+/* Footer */
+.page-footer{text-align:center;padding:24px 20px 16px;margin-top:32px;border-top:1px solid var(--border);
+  font-size:.68rem;color:var(--text4);letter-spacing:.03em}
+.page-footer .creator{color:var(--accent2);font-weight:700;letter-spacing:.02em}
+.page-footer .version{color:var(--text4);margin-top:4px;font-size:.6rem}
+
+/* Responsive */
+@media(max-width:768px){
+  .topbar-nav{overflow-x:auto;margin:0 8px}
+  .topbar-tab{padding:12px 10px;font-size:.7rem}
+  .stats{gap:8px}
+  .stat{min-width:100px;padding:10px 12px}
+  .stat-value{font-size:1.1rem}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ AUTH SCREEN ═══ -->
+<div id="auth">
+<div class="auth-box">
+  <div class="auth-brand">
+    <h1>NSE PULSE PRO</h1>
+    <p>Institutional Terminal v5.0</p>
+    <div style="margin-top:20px;font-size:.7rem;color:var(--text4);font-weight:500;letter-spacing:.05em">Built by <span style="color:var(--accent2);font-weight:700">Kanishk Arora</span></div>
+  </div>
+  <div class="auth-tabs">
+    <div class="auth-tab active" onclick="switchAuthTab(0)">Zerodha Login</div>
+    <div class="auth-tab" onclick="switchAuthTab(1)">Direct Token</div>
+  </div>
+  <div class="auth-pane active" id="auth-oauth">
+    <input class="auth-input" id="a_key" placeholder="API Key" autocomplete="off">
+    <input class="auth-input" id="a_secret" type="password" placeholder="API Secret" autocomplete="off">
+    <button class="auth-btn" onclick="doOAuth()">Connect via Zerodha</button>
+  </div>
+  <div class="auth-pane" id="auth-direct">
+    <input class="auth-input" id="a_key2" placeholder="API Key" autocomplete="off">
+    <input class="auth-input" id="a_token" type="password" placeholder="Access Token" autocomplete="off">
+    <button class="auth-btn" onclick="doDirect()">Authenticate</button>
+  </div>
+  <div class="auth-error" id="auth-err"></div>
+  <div style="margin-top:24px;text-align:center;font-size:.65rem;color:var(--text4)">Multi-user supported — up to 20 concurrent sessions</div>
+</div>
+</div>
+
+<!-- ═══ MAIN APP ═══ -->
+<div id="app">
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div class="topbar-brand">PULSE PRO</div>
+  <div class="topbar-nav" id="nav">
+    <div class="topbar-tab active" data-tab="dashboard">Dashboard</div>
+    <div class="topbar-tab" data-tab="screener">Screener</div>
+    <div class="topbar-tab" data-tab="smartmoney">Smart Money</div>
+    <div class="topbar-tab" data-tab="options">Options Lab</div>
+    <div class="topbar-tab" data-tab="sectors">Sector Rotation</div>
+    <div class="topbar-tab" data-tab="momentum">Momentum</div>
+    <div class="topbar-tab" data-tab="risk">Risk Matrix</div>
+    <div class="topbar-tab" data-tab="signals">Signals</div>
+  </div>
+  <div class="topbar-status">
+    <div class="topbar-dot" id="statusDot"></div>
+    <span id="statusText">Connected</span>
+  </div>
+  <div class="topbar-time mono" id="clock"></div>
+  <button class="btn btn-sm" onclick="doLogout()" style="margin-left:8px;font-size:.65rem;color:var(--red2);border-color:var(--red3)">Logout</button>
+</div>
+
+<!-- Content -->
+<div class="main">
+
+<!-- ═══ TAB: DASHBOARD ═══ -->
+<div class="tab-panel active" id="tab-dashboard">
+  <div class="card-header">
+    <div><div class="card-title">Market Overview</div><div class="card-subtitle">Real-time indices & market breadth</div></div>
+    <button class="refresh-btn" onclick="loadDashboard()">Refresh</button>
+  </div>
+  <div id="dash-indices" class="stats"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px">Top Gainers</div>
+      <div id="dash-gainers"></div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px">Top Losers</div>
+      <div id="dash-losers"></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="card-title" style="margin-bottom:12px">Sector Heatmap</div>
+    <div id="dash-heatmap" class="heatmap"></div>
+  </div>
+</div>
+
+<!-- ═══ TAB: SCREENER ═══ -->
+<div class="tab-panel" id="tab-screener">
+  <div class="card-header">
+    <div><div class="card-title">Institutional Screener</div>
+    <div class="card-subtitle">Custom date range analysis with full technicals — sort by any column</div></div>
+    <button class="refresh-btn" onclick="loadScreener()">Refresh</button>
+  </div>
+  <div class="controls">
+    <label>Index</label>
+    <select id="scr-index" onchange="loadScreener()">
+      <option value="NIFTY50">NIFTY 50</option>
+      <option value="BANKNIFTY">BANK NIFTY</option>
+      <option value="NIFTYIT">NIFTY IT</option>
+      <option value="NIFTYPHARMA">NIFTY PHARMA</option>
+      <option value="NIFTYAUTO">NIFTY AUTO</option>
+      <option value="NIFTYMETAL">NIFTY METAL</option>
+      <option value="NIFTYENERGY">NIFTY ENERGY</option>
+      <option value="NIFTYFMCG">NIFTY FMCG</option>
+      <option value="NIFTYREALTY">NIFTY REALTY</option>
+      <option value="NIFTYMIDCAP">NIFTY MIDCAP</option>
+    </select>
+    <label>From</label>
+    <input type="date" id="scr-from">
+    <label>To</label>
+    <input type="date" id="scr-to">
+    <div class="date-presets">
+      <div class="date-preset" onclick="setDateRange(7)">1W</div>
+      <div class="date-preset active" onclick="setDateRange(30)">1M</div>
+      <div class="date-preset" onclick="setDateRange(90)">3M</div>
+      <div class="date-preset" onclick="setDateRange(180)">6M</div>
+      <div class="date-preset" onclick="setDateRange(365)">1Y</div>
+      <div class="date-preset" onclick="setDateRangeYTD()">YTD</div>
+    </div>
+    <button class="btn btn-primary" onclick="loadScreener()">Analyze</button>
+  </div>
+  <div id="scr-stats" class="stats"></div>
+  <div id="scr-table" class="tbl-wrap"></div>
+</div>
+
+<!-- ═══ TAB: SMART MONEY ═══ -->
+<div class="tab-panel" id="tab-smartmoney">
+  <div class="card-header">
+    <div><div class="card-title">Smart Money Flow</div>
+    <div class="card-subtitle">Buy/sell pressure, VWAP deviation, order book imbalance, accumulation/distribution</div></div>
+    <button class="refresh-btn" onclick="loadSmartMoney()">Refresh</button>
+  </div>
+  <div class="controls">
+    <label>Index</label>
+    <select id="sm-index" onchange="loadSmartMoney()">
+      <option value="NIFTY50">NIFTY 50</option>
+      <option value="BANKNIFTY">BANK NIFTY</option>
+      <option value="NIFTYIT">NIFTY IT</option>
+      <option value="NIFTYPHARMA">NIFTY PHARMA</option>
+      <option value="NIFTYMETAL">NIFTY METAL</option>
+    </select>
+  </div>
+  <div id="sm-stats" class="stats"></div>
+  <div id="sm-table" class="tbl-wrap"></div>
+</div>
+
+<!-- ═══ TAB: OPTIONS LAB ═══ -->
+<div class="tab-panel" id="tab-options">
+  <div class="card-header">
+    <div><div class="card-title">Options Intelligence Lab</div>
+    <div class="card-subtitle">Full option chain, PCR, max pain, OI concentration</div></div>
+    <button class="refresh-btn" onclick="loadOptions()">Refresh</button>
+  </div>
+  <div class="controls">
+    <label>Underlying</label>
+    <select id="opt-sym">
+      <option value="NIFTY">NIFTY</option>
+      <option value="BANKNIFTY">BANKNIFTY</option>
+      <option value="FINNIFTY">FINNIFTY</option>
+      <option value="MIDCPNIFTY">MIDCPNIFTY</option>
+    </select>
+    <label>Expiry</label>
+    <select id="opt-expiry"></select>
+    <button class="btn btn-primary" onclick="loadOptions()">Load Chain</button>
+  </div>
+  <div id="opt-stats" class="stats"></div>
+  <div id="opt-table" class="tbl-wrap"></div>
+</div>
+
+<!-- ═══ TAB: SECTOR ROTATION ═══ -->
+<div class="tab-panel" id="tab-sectors">
+  <div class="card-header">
+    <div><div class="card-title">Sector Rotation Radar</div>
+    <div class="card-subtitle">Money flow between sectors, relative strength ranking</div></div>
+    <button class="refresh-btn" onclick="loadSectors()">Refresh</button>
+  </div>
+  <div class="controls">
+    <label>From</label>
+    <input type="date" id="sec-from">
+    <label>To</label>
+    <input type="date" id="sec-to">
+    <div class="date-presets">
+      <div class="date-preset" onclick="setSectorDateRange(7)">1W</div>
+      <div class="date-preset active" onclick="setSectorDateRange(30)">1M</div>
+      <div class="date-preset" onclick="setSectorDateRange(90)">3M</div>
+    </div>
+    <button class="btn btn-primary" onclick="loadSectors()">Analyze</button>
+  </div>
+  <div id="sec-content"></div>
+</div>
+
+<!-- ═══ TAB: MOMENTUM ═══ -->
+<div class="tab-panel" id="tab-momentum">
+  <div class="card-header">
+    <div><div class="card-title">Momentum Scanner</div>
+    <div class="card-subtitle">RSI extremes, MA crossovers, 52-week proximity, trend strength, divergences</div></div>
+    <button class="refresh-btn" onclick="loadMomentum()">Refresh</button>
+  </div>
+  <div class="controls">
+    <label>Index</label>
+    <select id="mom-index" onchange="loadMomentum()">
+      <option value="NIFTY50">NIFTY 50</option>
+      <option value="BANKNIFTY">BANK NIFTY</option>
+      <option value="NIFTYIT">NIFTY IT</option>
+      <option value="NIFTYPHARMA">NIFTY PHARMA</option>
+    </select>
+  </div>
+  <div id="mom-stats" class="stats"></div>
+  <div id="mom-table" class="tbl-wrap"></div>
+</div>
+
+<!-- ═══ TAB: RISK MATRIX ═══ -->
+<div class="tab-panel" id="tab-risk">
+  <div class="card-header">
+    <div><div class="card-title">Risk Matrix</div>
+    <div class="card-subtitle">Volatility, VaR, Sharpe, Beta, drawdown, correlation matrix</div></div>
+    <button class="refresh-btn" onclick="loadRisk()">Refresh</button>
+  </div>
+  <div class="controls">
+    <label>Index</label>
+    <select id="risk-index">
+      <option value="NIFTY50">NIFTY 50</option>
+      <option value="BANKNIFTY">BANK NIFTY</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadRisk()">Analyze</button>
+    <button class="btn" onclick="loadCorrelation()">Correlation Matrix</button>
+  </div>
+  <div id="risk-stats" class="stats"></div>
+  <div id="risk-table" class="tbl-wrap"></div>
+  <div id="risk-corr" style="margin-top:16px"></div>
+</div>
+
+<!-- ═══ TAB: SIGNALS ═══ -->
+<div class="tab-panel" id="tab-signals">
+  <div class="card-header">
+    <div><div class="card-title">Institutional Signals</div>
+    <div class="card-subtitle">Divergences, crossovers, extreme RSI, smart money convergence — derived from live + historical data</div></div>
+    <button class="refresh-btn" onclick="loadSignals()">Refresh</button>
+  </div>
+  <div id="sig-content">
+    <div class="loading"><div class="loading-spinner"></div><div class="loading-text">Select a tab to start analysis</div></div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- Footer (always visible) -->
+<div style="flex-shrink:0;text-align:center;padding:8px 20px;background:var(--bg2);border-top:1px solid var(--border);
+  font-size:.65rem;color:var(--text4);letter-spacing:.03em">
+  NSE Pulse Pro v5.0 — Institutional Terminal &nbsp;|&nbsp; Built by <span style="color:var(--accent2);font-weight:700">Kanishk Arora</span>
+</div>
+</div><!-- /app -->
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  CONFIG & STATE
+// ═══════════════════════════════════════════════════════════
+const INDICES = {
+  NIFTY50:['RELIANCE','TCS','HDFCBANK','ICICIBANK','INFY','BHARTIARTL','ITC','SBIN','HINDUNILVR','BAJFINANCE','LT','AXISBANK','KOTAKBANK','TITAN','ASIANPAINT','MARUTI','WIPRO','HCLTECH','ULTRACEMCO','SUNPHARMA','TATAMOTORS','NTPC','POWERGRID','NESTLEIND','ADANIPORTS','TECHM','M&M','BAJAJ-AUTO','TATASTEEL','JSWSTEEL','CIPLA','DIVISLAB','GRASIM','HINDALCO','INDUSINDBK','BPCL','ADANIENT','COALINDIA','BEL','SHRIRAMFIN','ONGC','TATACONSUM','HEROMOTOCO','DRREDDY','APOLLOHOSP','EICHERMOT','BAJAJFINSV','SBILIFE','HDFCLIFE','BRITANNIA'],
+  BANKNIFTY:['HDFCBANK','ICICIBANK','SBIN','AXISBANK','KOTAKBANK','INDUSINDBK','BANKBARODA','CANBK','FEDERALBNK','IDFCFIRSTB','AUBANK','PNB'],
+  NIFTYIT:['TCS','INFY','WIPRO','HCLTECH','TECHM','LTIM','MPHASIS','COFORGE','PERSISTENT','LTTS'],
+  NIFTYPHARMA:['SUNPHARMA','DRREDDY','CIPLA','DIVISLAB','APOLLOHOSP','AUROPHARMA','BIOCON','TORNTPHARM','LUPIN','ALKEM'],
+  NIFTYAUTO:['TATAMOTORS','MARUTI','M&M','BAJAJ-AUTO','EICHERMOT','HEROMOTOCO','ASHOKLEY','BALKRISIND','BHARATFORG','BOSCHLTD'],
+  NIFTYMETAL:['TATASTEEL','JSWSTEEL','HINDALCO','VEDL','NMDC','SAIL','NATIONALUM','JINDALSTEL','APLAPOLLO','RATNAMANI'],
+  NIFTYENERGY:['RELIANCE','NTPC','POWERGRID','ONGC','BPCL','TATAPOWER','IOC','GAIL','ADANIGREEN','COALINDIA'],
+  NIFTYFMCG:['HINDUNILVR','ITC','NESTLEIND','BRITANNIA','TATACONSUM','GODREJCP','DABUR','MARICO','COLPAL','VBL'],
+  NIFTYREALTY:['DLF','GODREJPROP','OBEROIRLTY','PHOENIXLTD','PRESTIGE','BRIGADE','SOBHA','LODHA','MAHLIFE','SUNTECK'],
+  NIFTYMIDCAP:['PERSISTENT','COFORGE','MPHASIS','LTTS','AUBANK','FEDERALBNK','BALKRISIND','ASHOKLEY','AUROPHARMA','TORNTPHARM','LUPIN','ALKEM','JINDALSTEL','SAIL','NATIONALUM','VEDL','TATAPOWER','IOC','GAIL','DLF','GODREJPROP','OBEROIRLTY','VBL','DABUR','MARICO','COLPAL'],
+};
+
+let activeTab = 'dashboard';
+let tabLoaded = {};
+let screenerData = null;
+let momentumData = null;
+let smartMoneyData = null;
+let sortState = {};
+
+// ═══════════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════════
+function api(ep, body) {
+  return fetch('/api'+ep, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}).then(r=>r.json());
+}
+function apiGet(ep) { return fetch('/api'+ep).then(r=>r.json()); }
+
+function fmt(n,d=2){ return n==null?'—':Number(n).toFixed(d); }
+function fmtLakh(n){ return n>=10000000?(n/10000000).toFixed(1)+'Cr':n>=100000?(n/100000).toFixed(1)+'L':n>=1000?(n/1000).toFixed(1)+'K':n; }
+function chgClass(v){ return v>0.05?'up':v<-0.05?'dn':'dim'; }
+function chgBadge(v){ return `<span class="badge ${v>0.05?'badge-green':v<-0.05?'badge-red':'badge-neutral'}">${v>0?'+':''}${fmt(v)}%</span>`; }
+function signalBadge(s){
+  if(s.includes('STRONG_ACCUMULATION')) return '<span class="signal signal-bull">STRONG ACCUM</span>';
+  if(s.includes('ACCUMULATION')) return '<span class="signal signal-bull">ACCUM</span>';
+  if(s.includes('STRONG_DISTRIBUTION')) return '<span class="signal signal-bear">STRONG DIST</span>';
+  if(s.includes('DISTRIBUTION')) return '<span class="signal signal-bear">DIST</span>';
+  return '<span class="signal signal-neutral">NEUTRAL</span>';
+}
+
+function dateStr(d){ return d.toISOString().split('T')[0]; }
+function daysAgo(n){ const d=new Date(); d.setDate(d.getDate()-n); return dateStr(d); }
+function today(){ return dateStr(new Date()); }
+
+function setDateRange(days){
+  document.getElementById('scr-from').value = daysAgo(days);
+  document.getElementById('scr-to').value = today();
+  document.querySelectorAll('#tab-screener .date-preset').forEach(e=>e.classList.remove('active'));
+  event.target.classList.add('active');
+}
+function setDateRangeYTD(){
+  const y = new Date().getFullYear();
+  document.getElementById('scr-from').value = `${y}-01-01`;
+  document.getElementById('scr-to').value = today();
+  document.querySelectorAll('#tab-screener .date-preset').forEach(e=>e.classList.remove('active'));
+  event.target.classList.add('active');
+}
+function setSectorDateRange(days){
+  document.getElementById('sec-from').value = daysAgo(days);
+  document.getElementById('sec-to').value = today();
+  document.querySelectorAll('#tab-sectors .date-preset').forEach(e=>e.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+function showLoading(id, msg='Loading...'){
+  document.getElementById(id).innerHTML = `<div class="loading"><div class="loading-spinner"></div><div class="loading-text">${msg}</div></div>`;
+}
+
+function drawSparkline(data, el){
+  if(!data||!data.length) return;
+  const w=80, h=28, min=Math.min(...data), max=Math.max(...data), range=max-min||1;
+  const pts = data.map((v,i)=>`${(i/(data.length-1))*w},${h-(((v-min)/range)*h)}`).join(' ');
+  const color = data[data.length-1]>=data[0]?'var(--green)':'var(--red)';
+  el.innerHTML = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+}
+
+function sortTable(tableId, data, col, renderFn){
+  const key = tableId+'_'+col;
+  if(!sortState[key]) sortState[key] = 'desc';
+  else sortState[key] = sortState[key]==='desc'?'asc':'desc';
+  const dir = sortState[key]==='desc'?-1:1;
+  data.sort((a,b)=>{
+    let va=a[col], vb=b[col];
+    if(va==null) va = dir>0?Infinity:-Infinity;
+    if(vb==null) vb = dir>0?Infinity:-Infinity;
+    if(typeof va==='string') return va.localeCompare(vb)*dir;
+    return (va-vb)*dir;
+  });
+  renderFn(data);
+}
+
+function heatColor(val){
+  if(val>3) return 'rgba(0,184,148,.35)';
+  if(val>1) return 'rgba(0,184,148,.2)';
+  if(val>0) return 'rgba(0,184,148,.1)';
+  if(val>-1) return 'rgba(225,112,85,.1)';
+  if(val>-3) return 'rgba(225,112,85,.2)';
+  return 'rgba(225,112,85,.35)';
+}
+
+function corrColor(val){
+  if(val>0.7) return 'rgba(0,184,148,.4)';
+  if(val>0.3) return 'rgba(0,184,148,.2)';
+  if(val>-0.3) return 'rgba(255,255,255,.05)';
+  if(val>-0.7) return 'rgba(225,112,85,.2)';
+  return 'rgba(225,112,85,.4)';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  AUTH
+// ═══════════════════════════════════════════════════════════
+function switchAuthTab(i){
+  document.querySelectorAll('.auth-tab').forEach((t,j)=>t.classList.toggle('active',j===i));
+  document.querySelectorAll('.auth-pane').forEach((p,j)=>p.classList.toggle('active',j===i));
+}
+async function doOAuth(){
+  const key=document.getElementById('a_key').value.trim();
+  const secret=document.getElementById('a_secret').value.trim();
+  if(!key||!secret){document.getElementById('auth-err').textContent='Enter API key and secret';return;}
+  localStorage.setItem('pp_key',key);localStorage.setItem('pp_secret',secret);
+  window.location.href=`/api/login?api_key=${encodeURIComponent(key)}&api_secret=${encodeURIComponent(secret)}`;
+}
+async function doDirect(){
+  const key=document.getElementById('a_key2').value.trim();
+  const tok=document.getElementById('a_token').value.trim();
+  if(!key||!tok){document.getElementById('auth-err').textContent='Enter API key and token';return;}
+  try{
+    const r=await api('/auth',{api_key:key,access_token:tok});
+    if(r.valid){localStorage.setItem('pp_key',key);localStorage.setItem('pp_token',tok);initApp();}
+    else document.getElementById('auth-err').textContent=r.error||'Invalid credentials';
+  }catch(e){document.getElementById('auth-err').textContent=e.message;}
+}
+async function checkAuth(){
+  try{
+    const s=await apiGet('/status');
+    if(s.ok){initApp();return;}
+    const key=localStorage.getItem('pp_key');
+    const tok=localStorage.getItem('pp_token');
+    if(key&&tok){
+      const r=await api('/auth',{api_key:key,access_token:tok});
+      if(r.valid){initApp();return;}
+    }
+  }catch(e){}
+  document.getElementById('auth').classList.remove('hide');
+}
+
+async function doLogout(){
+  try{ await api('/logout',{}); }catch(e){}
+  localStorage.removeItem('pp_key');
+  localStorage.removeItem('pp_token');
+  localStorage.removeItem('pp_secret');
+  document.getElementById('app').classList.remove('show');
+  document.getElementById('auth').classList.remove('hide');
+  tabLoaded = {};
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+function initApp(){
+  document.getElementById('auth').classList.add('hide');
+  document.getElementById('app').classList.add('show');
+  // Set default dates
+  document.getElementById('scr-from').value = daysAgo(30);
+  document.getElementById('scr-to').value = today();
+  document.getElementById('sec-from').value = daysAgo(30);
+  document.getElementById('sec-to').value = today();
+  // Start clock
+  setInterval(()=>{
+    const now=new Date();
+    document.getElementById('clock').textContent=now.toLocaleTimeString('en-IN',{hour12:false});
+  },1000);
+  // Load dashboard
+  loadDashboard();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  NAV
+// ═══════════════════════════════════════════════════════════
+document.getElementById('nav').addEventListener('click', e=>{
+  const tab = e.target.dataset.tab;
+  if(!tab) return;
+  activeTab = tab;
+  document.querySelectorAll('.topbar-tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+tab));
+  if(!tabLoaded[tab]){
+    const loaders = {dashboard:loadDashboard,screener:loadScreener,smartmoney:loadSmartMoney,
+      options:loadOptions,sectors:loadSectors,momentum:loadMomentum,risk:loadRisk,signals:loadSignals};
+    if(loaders[tab]) loaders[tab]();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  TAB: DASHBOARD
+// ═══════════════════════════════════════════════════════════
+async function loadDashboard(){
+  try{
+    const [indices, breadth] = await Promise.all([
+      apiGet('/indices'),
+      api('/breadth', {symbols: INDICES.NIFTY50})
+    ]);
+    tabLoaded.dashboard = true;
+
+    // Indices
+    const idxData = indices.data || indices;
+    let idxHtml = '';
+    for(const [key, info] of Object.entries(idxData)){
+      const name = key.replace('NSE:','');
+      const ltp = info.last_price || 0;
+      const chg = info.net_change || 0;
+      const chgPct = info.ohlc ? ((ltp - info.ohlc.close)/info.ohlc.close*100) : 0;
+      const cls = chgPct >= 0 ? 'up' : 'dn';
+      idxHtml += `<div class="stat"><div class="stat-label">${name}</div>
+        <div class="stat-value ${cls} mono">${fmt(ltp,1)}</div>
+        <div class="stat-sub ${cls} mono">${chgPct>=0?'+':''}${fmt(chgPct)}%</div></div>`;
+    }
+    document.getElementById('dash-indices').innerHTML = idxHtml;
+
+    // Gainers/Losers
+    if(breadth.stocks){
+      const sorted = [...breadth.stocks].sort((a,b)=>b.change-a.change);
+      const gainers = sorted.slice(0,8);
+      const losers = sorted.slice(-8).reverse();
+      document.getElementById('dash-gainers').innerHTML = renderMiniTable(gainers);
+      document.getElementById('dash-losers').innerHTML = renderMiniTable(losers);
+
+      // Heatmap
+      let heatHtml = '';
+      for(const s of breadth.stocks){
+        heatHtml += `<div class="heat-cell" style="background:${heatColor(s.change)}">
+          <div class="sym">${s.symbol}</div>
+          <div class="val ${chgClass(s.change)}">${s.change>=0?'+':''}${fmt(s.change)}%</div></div>`;
+      }
+      document.getElementById('dash-heatmap').innerHTML = heatHtml;
+    }
+  }catch(e){
+    document.getElementById('dash-indices').innerHTML = `<div style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+function renderMiniTable(stocks){
+  let html = '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>Change</th><th>Volume</th></tr></thead><tbody>';
+  for(const s of stocks){
+    html += `<tr><td style="font-weight:600">${s.symbol}</td>
+      <td class="mono">${fmt(s.ltp)}</td>
+      <td class="mono ${chgClass(s.change)}">${s.change>=0?'+':''}${fmt(s.change)}%</td>
+      <td class="mono dim">${fmtLakh(s.volume)}</td></tr>`;
+  }
+  return html+'</tbody></table>';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TAB: SCREENER (THE MAIN FEATURE)
+// ═══════════════════════════════════════════════════════════
+async function loadScreener(){
+  const idx = document.getElementById('scr-index').value;
+  const fr = document.getElementById('scr-from').value;
+  const to = document.getElementById('scr-to').value;
+  if(!fr||!to) return;
+
+  showLoading('scr-table', 'Analyzing stocks with full technicals...');
+
+  try{
+    const data = await api('/screener', {index:idx, from:fr, to:to});
+    screenerData = data;
+    tabLoaded.screener = true;
+
+    // Stats
+    document.getElementById('scr-stats').innerHTML = `
+      <div class="stat"><div class="stat-label">Stocks</div><div class="stat-value mono">${data.count}</div></div>
+      <div class="stat"><div class="stat-label">Avg Change</div><div class="stat-value mono ${chgClass(data.indexChange)}">${data.indexChange>=0?'+':''}${fmt(data.indexChange)}%</div></div>
+      <div class="stat"><div class="stat-label">Advances</div><div class="stat-value mono up">${data.advances}</div></div>
+      <div class="stat"><div class="stat-label">Declines</div><div class="stat-value mono dn">${data.declines}</div></div>
+      <div class="stat"><div class="stat-label">Period</div><div class="stat-value" style="font-size:1rem">${fr} → ${to}</div></div>`;
+
+    renderScreenerTable(data.stocks);
+  }catch(e){
+    document.getElementById('scr-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
+  }
+}
+
+function renderScreenerTable(stocks){
+  const cols = [
+    {key:'symbol',label:'Symbol',fmt:v=>v},
+    {key:'sector',label:'Sector',fmt:v=>`<span style="color:var(--text3)">${v||'—'}</span>`},
+    {key:'startPrice',label:'Start',fmt:v=>`<span class="mono">${fmt(v)}</span>`},
+    {key:'endPrice',label:'End',fmt:v=>`<span class="mono">${fmt(v)}</span>`},
+    {key:'change',label:'Change%',fmt:v=>chgBadge(v)},
+    {key:'drawdownFromHigh',label:'DD from High',fmt:v=>`<span class="mono dn">-${fmt(v)}%</span>`},
+    {key:'recoveryFromLow',label:'Recovery',fmt:v=>`<span class="mono up">+${fmt(v)}%</span>`},
+    {key:'rsi',label:'RSI',fmt:v=>{
+      if(v==null)return '—';
+      const c = v>70?'dn':v<30?'up':'';
+      return `<span class="mono ${c}">${fmt(v,1)}</span>`;
+    }},
+    {key:'macd',label:'MACD',fmt:v=>v==null?'—':`<span class="mono ${v>0?'up':'dn'}">${fmt(v)}</span>`},
+    {key:'adx',label:'ADX',fmt:v=>v==null?'—':`<span class="mono ${v>25?'accent':''}">${fmt(v,1)}</span>`},
+    {key:'volatility',label:'Volatility',fmt:v=>`<span class="mono ${v>40?'warn':''}">${fmt(v,1)}%</span>`},
+    {key:'maxDrawdown',label:'Max DD',fmt:v=>`<span class="mono dn">${fmt(v,1)}%</span>`},
+    {key:'sharpe',label:'Sharpe',fmt:v=>v==null?'—':`<span class="mono ${v>1?'up':v<0?'dn':''}">${fmt(v)}</span>`},
+    {key:'beta',label:'Beta',fmt:v=>v==null?'—':`<span class="mono">${fmt(v)}</span>`},
+    {key:'relativeStrength',label:'Rel Str',fmt:v=>v==null?'—':`<span class="mono ${v>0?'up':'dn'}">${v>0?'+':''}${fmt(v)}</span>`},
+    {key:'divergence',label:'Divergence',fmt:v=>{
+      if(v==='bullish') return '<span class="signal signal-bull">BULLISH</span>';
+      if(v==='bearish') return '<span class="signal signal-bear">BEARISH</span>';
+      return '<span class="dim">—</span>';
+    }},
+    {key:'aboveSMA20',label:'> SMA20',fmt:v=>v==null?'—':v?'<span class="up">✓</span>':'<span class="dn">✗</span>'},
+    {key:'aboveSMA50',label:'> SMA50',fmt:v=>v==null?'—':v?'<span class="up">✓</span>':'<span class="dn">✗</span>'},
+    {key:'aboveSMA200',label:'> SMA200',fmt:v=>v==null?'—':v?'<span class="up">✓</span>':'<span class="dn">✗</span>'},
+    {key:'avgVolume',label:'Avg Vol',fmt:v=>`<span class="mono dim">${fmtLakh(v)}</span>`},
+    {key:'volumeTrend',label:'Vol Trend',fmt:v=>`<span class="mono ${v>20?'up':v<-20?'dn':'dim'}">${v>0?'+':''}${fmt(v,1)}%</span>`},
+    {key:'efficiency',label:'Efficiency',fmt:v=>`<span class="mono">${fmt(v,1)}%</span>`},
+    {key:'sparkline',label:'Trend',fmt:(v,row)=>'<span class="sparkline" data-spark="'+row.symbol+'"></span>'},
+  ];
+
+  let html = '<table class="tbl"><thead><tr>';
+  for(const c of cols){
+    html += `<th onclick="sortScreener('${c.key}')">${c.label}<span class="sort-arrow">${sortState['scr_'+c.key]==='asc'?'▲':sortState['scr_'+c.key]==='desc'?'▼':''}</span></th>`;
+  }
+  html += '</tr></thead><tbody>';
+  for(const s of stocks){
+    html += '<tr>';
+    for(const c of cols){
+      html += `<td>${c.fmt(s[c.key],s)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  document.getElementById('scr-table').innerHTML = html;
+
+  // Draw sparklines
+  setTimeout(()=>{
+    for(const s of stocks){
+      const el = document.querySelector(`[data-spark="${s.symbol}"]`);
+      if(el && s.sparkline) drawSparkline(s.sparkline, el);
+    }
+  }, 50);
+}
+
+function sortScreener(col){
+  if(!screenerData) return;
+  sortTable('scr', screenerData.stocks, col, renderScreenerTable);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TAB: SMART MONEY
+// ═══════════════════════════════════════════════════════════
+async function loadSmartMoney(){
+  const idx = document.getElementById('sm-index').value;
+  showLoading('sm-table', 'Analyzing smart money flow...');
+  try{
+    const data = await api('/smartmoney', {symbols: INDICES[idx]});
+    smartMoneyData = data;
+    tabLoaded.smartmoney = true;
+
+    const accum = data.stocks.filter(s=>s.signal.includes('ACCUMULATION')).length;
+    const dist = data.stocks.filter(s=>s.signal.includes('DISTRIBUTION')).length;
+
+    document.getElementById('sm-stats').innerHTML = `
+      <div class="stat"><div class="stat-label">Market B/S Ratio</div>
+        <div class="stat-value mono ${data.marketBSRatio>1?'up':'dn'}">${fmt(data.marketBSRatio)}</div>
+        <div class="stat-sub">${data.marketBSRatio>1?'Buying pressure':'Selling pressure'}</div></div>
+      <div class="stat"><div class="stat-label">Accumulation</div><div class="stat-value mono up">${accum}</div></div>
+      <div class="stat"><div class="stat-label">Distribution</div><div class="stat-value mono dn">${dist}</div></div>
+      <div class="stat"><div class="stat-label">Total Buy Qty</div><div class="stat-value mono">${fmtLakh(data.totalBuyQty)}</div></div>
+      <div class="stat"><div class="stat-label">Total Sell Qty</div><div class="stat-value mono">${fmtLakh(data.totalSellQty)}</div></div>`;
+
+    renderSmartMoneyTable(data.stocks);
+  }catch(e){
+    document.getElementById('sm-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
+  }
+}
+
+function renderSmartMoneyTable(stocks){
+  const cols = [
+    {key:'symbol',label:'Symbol',fmt:v=>v},
+    {key:'sector',label:'Sector',fmt:v=>`<span class="dim">${v||'—'}</span>`},
+    {key:'ltp',label:'LTP',fmt:v=>`<span class="mono">${fmt(v)}</span>`},
+    {key:'change',label:'Change%',fmt:v=>chgBadge(v)},
+    {key:'volume',label:'Volume',fmt:v=>`<span class="mono">${fmtLakh(v)}</span>`},
+    {key:'avgPrice',label:'VWAP',fmt:v=>`<span class="mono">${fmt(v)}</span>`},
+    {key:'vwapDeviation',label:'VWAP Dev%',fmt:v=>`<span class="mono ${v>0?'up':'dn'}">${v>0?'+':''}${fmt(v)}%</span>`},
+    {key:'buyQty',label:'Buy Qty',fmt:v=>`<span class="mono up">${fmtLakh(v)}</span>`},
+    {key:'sellQty',label:'Sell Qty',fmt:v=>`<span class="mono dn">${fmtLakh(v)}</span>`},
+    {key:'bsRatio',label:'B/S Ratio',fmt:v=>{
+      const c = v>1.3?'up':v<0.7?'dn':'';
+      return `<span class="mono ${c}">${fmt(v)}</span>`;
+    }},
+    {key:'wallRatio',label:'Wall Ratio',fmt:v=>{
+      const c = v>1.5?'up':v<0.7?'dn':'';
+      return `<span class="mono ${c}">${fmt(v)}</span>`;
+    }},
+    {key:'smartScore',label:'Smart Score',fmt:v=>{
+      const c = v>20?'up':v<-20?'dn':'';
+      return `<span class="mono ${c}">${fmt(v,0)}</span>`;
+    }},
+    {key:'signal',label:'Signal',fmt:v=>signalBadge(v)},
+  ];
+
+  let html = '<table class="tbl"><thead><tr>';
+  for(const c of cols){
+    html += `<th onclick="sortSmartMoney('${c.key}')">${c.label}<span class="sort-arrow"></span></th>`;
+  }
+  html += '</tr></thead><tbody>';
+  for(const s of stocks.sort((a,b)=>b.smartScore-a.smartScore)){
+    html += '<tr>';
+    for(const c of cols) html += `<td>${c.fmt(s[c.key],s)}</td>`;
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  document.getElementById('sm-table').innerHTML = html;
+}
+
+function sortSmartMoney(col){
+  if(!smartMoneyData) return;
+  sortTable('sm', smartMoneyData.stocks, col, renderSmartMoneyTable);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TAB: OPTIONS LAB
+// ═══════════════════════════════════════════════════════════
+async function loadOptions(){
+  const sym = document.getElementById('opt-sym').value;
+  const expiry = document.getElementById('opt-expiry').value;
+  showLoading('opt-table', 'Loading option chain...');
+  try{
+    const data = await api('/optionchain', {symbol:sym, expiry:expiry});
+    tabLoaded.options = true;
+
+    // Populate expiries
+    if(data.expiries){
+      const sel = document.getElementById('opt-expiry');
+      const curr = sel.value;
+      sel.innerHTML = data.expiries.map(e=>`<option value="${e}" ${e===data.expiry?'selected':''}>${e}</option>`).join('');
+    }
+
+    document.getElementById('opt-stats').innerHTML = `
+      <div class="stat"><div class="stat-label">PCR (OI)</div>
+        <div class="stat-value mono ${data.pcr>1?'up':'dn'}">${fmt(data.pcr,3)}</div>
+        <div class="stat-sub">${data.pcr>1?'Bullish sentiment':'Bearish sentiment'}</div></div>
+      <div class="stat"><div class="stat-label">Max Pain</div><div class="stat-value mono accent">${data.maxPain}</div></div>
+      <div class="stat"><div class="stat-label">Total CE OI</div><div class="stat-value mono">${fmtLakh(data.totalCEOI)}</div></div>
+      <div class="stat"><div class="stat-label">Total PE OI</div><div class="stat-value mono">${fmtLakh(data.totalPEOI)}</div></div>
+      <div class="stat"><div class="stat-label">Max CE OI Strike</div><div class="stat-value mono dn">${data.maxCEOIStrike}</div>
+        <div class="stat-sub">Resistance</div></div>
+      <div class="stat"><div class="stat-label">Max PE OI Strike</div><div class="stat-value mono up">${data.maxPEOIStrike}</div>
+        <div class="stat-sub">Support</div></div>`;
+
+    // Chain table
+    let html = '<table class="tbl"><thead><tr>';
+    html += '<th colspan="4" style="text-align:center;color:var(--green);border-right:2px solid var(--border2)">── CALLS ──</th>';
+    html += '<th style="text-align:center;color:var(--accent2)">Strike</th>';
+    html += '<th colspan="4" style="text-align:center;color:var(--red)">── PUTS ──</th>';
+    html += '</tr><tr>';
+    html += '<th>OI</th><th>Volume</th><th>LTP</th><th style="border-right:2px solid var(--border2)">Chg</th>';
+    html += '<th style="text-align:center">Strike</th>';
+    html += '<th>Chg</th><th>LTP</th><th>Volume</th><th>OI</th>';
+    html += '</tr></thead><tbody>';
+
+    const maxOI = Math.max(...data.chain.map(s=>Math.max(s.ce_oi||0,s.pe_oi||0)));
+
+    for(const s of data.chain){
+      const isATM = s.strike === data.maxPain;
+      const rowStyle = isATM ? 'background:rgba(108,92,231,.08);' : '';
+      const ceOIPct = maxOI>0?(s.ce_oi||0)/maxOI*100:0;
+      const peOIPct = maxOI>0?(s.pe_oi||0)/maxOI*100:0;
+
+      html += `<tr style="${rowStyle}">
+        <td class="mono" style="background:linear-gradient(90deg,rgba(225,112,85,${ceOIPct/300}) ${ceOIPct}%,transparent ${ceOIPct}%)">${fmtLakh(s.ce_oi||0)}</td>
+        <td class="mono dim">${fmtLakh(s.ce_vol||0)}</td>
+        <td class="mono">${fmt(s.ce_ltp||0)}</td>
+        <td class="mono ${(s.ce_chg||0)>=0?'up':'dn'}" style="border-right:2px solid var(--border2)">${fmt(s.ce_chg||0)}</td>
+        <td class="mono" style="text-align:center;font-weight:700;color:var(--accent2)">${s.strike}</td>
+        <td class="mono ${(s.pe_chg||0)>=0?'up':'dn'}">${fmt(s.pe_chg||0)}</td>
+        <td class="mono">${fmt(s.pe_ltp||0)}</td>
+        <td class="mono dim">${fmtLakh(s.pe_vol||0)}</td>
+        <td class="mono" style="background:linear-gradient(270deg,rgba(0,184,148,${peOIPct/300}) ${peOIPct}%,transparent ${peOIPct}%)">${fmtLakh(s.pe_oi||0)}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    document.getElementById('opt-table').innerHTML = html;
+  }catch(e){
+    document.getElementById('opt-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TAB: SECTOR ROTATION
+// ═══════════════════════════════════════════════════════════
+async function loadSectors(){
+  const fr = document.getElementById('sec-from').value;
+  const to = document.getElementById('sec-to').value;
+  if(!fr||!to) return;
+  showLoading('sec-content', 'Analyzing sector rotation...');
+  try{
+    const data = await api('/sectors', {from:fr, to:to});
+    tabLoaded.sectors = true;
+
+    let html = '<div class="stats" style="margin-bottom:20px">';
+    for(const [sector, info] of Object.entries(data.sectors)){
+      const cls = info.avgChange >= 0 ? 'up' : 'dn';
+      html += `<div class="stat" style="cursor:pointer;min-width:160px" onclick="toggleSectorDetail('${sector}')">
+        <div class="stat-label">${sector}</div>
+        <div class="stat-value ${cls} mono">${info.avgChange>=0?'+':''}${fmt(info.avgChange)}%</div>
+        <div class="stat-sub">A:${info.advances} D:${info.declines} | Breadth: ${info.breadth}%</div></div>`;
+    }
+    html += '</div>';
+
+    // Sector comparison bar chart (CSS-only)
+    html += '<div class="card"><div class="card-title" style="margin-bottom:16px">Sector Performance Ranking</div>';
+    const entries = Object.entries(data.sectors);
+    const maxChg = Math.max(...entries.map(([,v])=>Math.abs(v.avgChange)), 1);
+    for(const [sector, info] of entries){
+      const pct = Math.abs(info.avgChange)/maxChg*100;
+      const isPos = info.avgChange >= 0;
+      html += `<div style="display:flex;align-items:center;margin-bottom:8px;gap:12px">
+        <div style="width:80px;font-size:.75rem;font-weight:600;color:var(--text2);text-align:right">${sector}</div>
+        <div style="flex:1;height:24px;background:var(--card2);border-radius:4px;overflow:hidden;position:relative">
+          <div style="height:100%;width:${pct}%;background:${isPos?'var(--green3)':'var(--red3)'};border-radius:4px;
+            display:flex;align-items:center;padding:0 8px;justify-content:${isPos?'flex-end':'flex-start'}">
+            <span class="mono" style="font-size:.7rem;font-weight:700;color:${isPos?'var(--green)':'var(--red)'}">${info.avgChange>=0?'+':''}${fmt(info.avgChange)}%</span>
+          </div>
+        </div>
+        <div style="width:60px;font-size:.68rem;color:var(--text3)">B:${info.breadth}%</div></div>`;
+    }
+    html += '</div>';
+
+    // Detailed sector tables
+    for(const [sector, info] of entries){
+      html += `<div class="card" id="sector-${sector}" style="margin-top:12px">
+        <div class="card-title" style="margin-bottom:10px">${sector} Stocks</div>
+        <table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>Change%</th><th>Avg Volume</th></tr></thead><tbody>`;
+      for(const s of info.stocks){
+        html += `<tr><td style="font-weight:600">${s.symbol}</td>
+          <td class="mono">${fmt(s.ltp)}</td>
+          <td class="mono ${chgClass(s.change)}">${s.change>=0?'+':''}${fmt(s.change)}%</td>
+          <td class="mono dim">${fmtLakh(s.avgVolume)}</td></tr>`;
+      }
+      html += '</tbody></table></div>';
+    }
+
+    document.getElementById('sec-content').innerHTML = html;
+  }catch(e){
+    document.getElementById('sec-content').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TAB: MOMENTUM
+// ═══════════════════════════════════════════════════════════
+async function loadMomentum(){
+  const idx = document.getElementById('mom-index').value;
+  showLoading('mom-table', 'Scanning momentum indicators (1Y historical)...');
+  try{
+    const data = await api('/momentum', {symbols: INDICES[idx]});
+    momentumData = data;
+    tabLoaded.momentum = true;
+
+    const oversold = data.stocks.filter(s=>s.rsi&&s.rsi<30).length;
+    const overbought = data.stocks.filter(s=>s.rsi&&s.rsi>70).length;
+    const bullDiv = data.stocks.filter(s=>s.divergence==='bullish').length;
+    const bearDiv = data.stocks.filter(s=>s.divergence==='bearish').length;
+    const goldenX = data.stocks.filter(s=>s.crossSignal==='golden_cross').length;
+    const deathX = data.stocks.filter(s=>s.crossSignal==='death_cross').length;
+
+    document.getElementById('mom-stats').innerHTML = `
+      <div class="stat"><div class="stat-label">Oversold (RSI<30)</div><div class="stat-value mono up">${oversold}</div></div>
+      <div class="stat"><div class="stat-label">Overbought (RSI>70)</div><div class="stat-value mono dn">${overbought}</div></div>
+      <div class="stat"><div class="stat-label">Bullish Divergence</div><div class="stat-value mono up">${bullDiv}</div></div>
+      <div class="stat"><div class="stat-label">Bearish Divergence</div><div class="stat-value mono dn">${bearDiv}</div></div>
+      <div class="stat"><div class="stat-label">Golden Cross</div><div class="stat-value mono up">${goldenX}</div></div>
+      <div class="stat"><div class="stat-label">Death Cross</div><div class="stat-value mono dn">${deathX}</div></div>`;
+
+    renderMomentumTable(data.stocks);
+  }catch(e){
+    document.getElementById('mom-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
+  }
+}
+
+function renderMomentumTable(stocks){
+  const cols = [
+    {key:'symbol',label:'Symbol',fmt:v=>`<span style="font-weight:700">${v}</span>`},
+    {key:'ltp',label:'LTP',fmt:v=>`<span class="mono">${fmt(v)}</span>`},
+    {key:'chg1w',label:'1W',fmt:v=>`<span class="mono ${chgClass(v)}">${v>=0?'+':''}${fmt(v)}%</span>`},
+    {key:'chg1m',label:'1M',fmt:v=>`<span class="mono ${chgClass(v)}">${v>=0?'+':''}${fmt(v)}%</span>`},
+    {key:'chg3m',label:'3M',fmt:v=>`<span class="mono ${chgClass(v)}">${v>=0?'+':''}${fmt(v)}%</span>`},
+    {key:'chg6m',label:'6M',fmt:v=>`<span class="mono ${chgClass(v)}">${v>=0?'+':''}${fmt(v)}%</span>`},
+    {key:'chg1y',label:'1Y',fmt:v=>`<span class="mono ${chgClass(v)}">${v>=0?'+':''}${fmt(v)}%</span>`},
+    {key:'rsi',label:'RSI',fmt:v=>{
+      if(v==null) return '—';
+      const c = v>70?'dn':v<30?'up':'';
+      const badge = v>70?'badge-red':v<30?'badge-green':'badge-neutral';
+      return `<span class="badge ${badge} mono">${fmt(v,1)}</span>`;
+    }},
+    {key:'macdHist',label:'MACD Hist',fmt:v=>v==null?'—':`<span class="mono ${v>0?'up':'dn'}">${fmt(v)}</span>`},
+    {key:'adx',label:'ADX',fmt:v=>v==null?'—':`<span class="mono ${v>25?'accent':''}">${fmt(v,1)}</span>`},
+    {key:'trendScore',label:'Trend Score',fmt:v=>{
+      const c = v>30?'up':v<-30?'dn':'dim';
+      return `<span class="mono ${c}">${v>0?'+':''}${v}</span>`;
+    }},
+    {key:'distFrom52wHigh',label:'From 52W H',fmt:v=>`<span class="mono dn">-${fmt(v)}%</span>`},
+    {key:'distFrom52wLow',label:'From 52W L',fmt:v=>`<span class="mono up">+${fmt(v)}%</span>`},
+    {key:'aboveSMA20',label:'>SMA20',fmt:v=>v==null?'—':v?'<span class="up">✓</span>':'<span class="dn">✗</span>'},
+    {key:'aboveSMA50',label:'>SMA50',fmt:v=>v==null?'—':v?'<span class="up">✓</span>':'<span class="dn">✗</span>'},
+    {key:'aboveSMA200',label:'>SMA200',fmt:v=>v==null?'—':v?'<span class="up">✓</span>':'<span class="dn">✗</span>'},
+    {key:'crossSignal',label:'Cross',fmt:v=>{
+      if(v==='golden_cross') return '<span class="signal signal-bull">GOLDEN</span>';
+      if(v==='death_cross') return '<span class="signal signal-bear">DEATH</span>';
+      return '<span class="dim">—</span>';
+    }},
+    {key:'divergence',label:'Divergence',fmt:v=>{
+      if(v==='bullish') return '<span class="signal signal-bull">BULL DIV</span>';
+      if(v==='bearish') return '<span class="signal signal-bear">BEAR DIV</span>';
+      return '<span class="dim">—</span>';
+    }},
+    {key:'gapType',label:'Gap',fmt:v=>{
+      if(v==='gap_up') return '<span class="badge badge-green">GAP UP</span>';
+      if(v==='gap_down') return '<span class="badge badge-red">GAP DOWN</span>';
+      return '<span class="dim">—</span>';
+    }},
+  ];
+
+  let html = '<table class="tbl"><thead><tr>';
+  for(const c of cols) html += `<th onclick="sortMomentum('${c.key}')">${c.label}</th>`;
+  html += '</tr></thead><tbody>';
+  for(const s of stocks){
+    html += '<tr>';
+    for(const c of cols) html += `<td>${c.fmt(s[c.key],s)}</td>`;
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  document.getElementById('mom-table').innerHTML = html;
+}
+
+function sortMomentum(col){
+  if(!momentumData) return;
+  sortTable('mom', momentumData.stocks, col, renderMomentumTable);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TAB: RISK MATRIX
+// ═══════════════════════════════════════════════════════════
+async function loadRisk(){
+  const idx = document.getElementById('risk-index').value;
+  showLoading('risk-table', 'Computing risk metrics (1Y historical)...');
+  try{
+    const data = await api('/risk', {symbols: INDICES[idx].slice(0,20)});
+    tabLoaded.risk = true;
+
+    document.getElementById('risk-stats').innerHTML = `
+      <div class="stat"><div class="stat-label">Portfolio VaR (95%)</div>
+        <div class="stat-value mono dn">${fmt(data.portfolioVaR95)}%</div>
+        <div class="stat-sub">1-day, 95% confidence</div></div>
+      <div class="stat"><div class="stat-label">Stocks Analyzed</div><div class="stat-value mono">${data.count}</div></div>`;
+
+    const cols = [
+      {key:'symbol',label:'Symbol',fmt:v=>`<span style="font-weight:700">${v}</span>`},
+      {key:'sector',label:'Sector',fmt:v=>`<span class="dim">${v||'—'}</span>`},
+      {key:'ltp',label:'LTP',fmt:v=>`<span class="mono">${fmt(v)}</span>`},
+      {key:'annualReturn',label:'Ann Return',fmt:v=>`<span class="mono ${v>=0?'up':'dn'}">${v>=0?'+':''}${fmt(v)}%</span>`},
+      {key:'volatility',label:'Volatility',fmt:v=>`<span class="mono ${v>40?'warn':''}">${fmt(v,1)}%</span>`},
+      {key:'maxDrawdown',label:'Max DD',fmt:v=>`<span class="mono dn">${fmt(v,1)}%</span>`},
+      {key:'beta',label:'Beta',fmt:v=>v==null?'—':`<span class="mono ${v>1.2?'warn':''}">${fmt(v)}</span>`},
+      {key:'sharpe',label:'Sharpe',fmt:v=>v==null?'—':`<span class="mono ${v>1?'up':v<0?'dn':''}">${fmt(v)}</span>`},
+      {key:'sortino',label:'Sortino',fmt:v=>v==null?'—':`<span class="mono ${v>1?'up':v<0?'dn':''}">${fmt(v)}</span>`},
+      {key:'calmar',label:'Calmar',fmt:v=>v==null?'—':`<span class="mono">${fmt(v)}</span>`},
+      {key:'var95',label:'VaR 95%',fmt:v=>`<span class="mono dn">${fmt(v)}%</span>`},
+      {key:'cvar95',label:'CVaR 95%',fmt:v=>`<span class="mono dn">${fmt(v)}%</span>`},
+    ];
+
+    let html = '<table class="tbl"><thead><tr>';
+    for(const c of cols) html += `<th>${c.label}</th>`;
+    html += '</tr></thead><tbody>';
+    for(const s of data.stocks.sort((a,b)=>(b.sharpe||0)-(a.sharpe||0))){
+      html += '<tr>';
+      for(const c of cols) html += `<td>${c.fmt(s[c.key])}</td>`;
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    document.getElementById('risk-table').innerHTML = html;
+  }catch(e){
+    document.getElementById('risk-table').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
+  }
+}
+
+async function loadCorrelation(){
+  const idx = document.getElementById('risk-index').value;
+  const el = document.getElementById('risk-corr');
+  el.innerHTML = '<div class="loading"><div class="loading-spinner"></div><div class="loading-text">Computing correlation matrix...</div></div>';
+  try{
+    const data = await api('/correlation', {symbols: INDICES[idx].slice(0,15)});
+    let html = '<div class="card"><div class="card-title" style="margin-bottom:12px">Correlation Matrix (90-day)</div><div class="corr-matrix"><table><tr><th></th>';
+    for(const s of data.symbols) html += `<th>${s}</th>`;
+    html += '</tr>';
+    for(let i=0; i<data.symbols.length; i++){
+      html += `<tr><th>${data.symbols[i]}</th>`;
+      for(let j=0; j<data.symbols.length; j++){
+        const v = data.matrix[i][j];
+        html += `<td class="corr-cell" style="background:${corrColor(v)}">${v.toFixed(2)}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</table></div></div>';
+    el.innerHTML = html;
+  }catch(e){
+    el.innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TAB: SIGNALS (Derived Intelligence)
+// ═══════════════════════════════════════════════════════════
+async function loadSignals(){
+  showLoading('sig-content', 'Generating institutional signals...');
+  try{
+    // Fetch smart money + momentum in parallel for signal generation
+    const [sm, mom] = await Promise.all([
+      api('/smartmoney', {symbols: INDICES.NIFTY50}),
+      api('/momentum', {symbols: INDICES.NIFTY50}),
+    ]);
+    tabLoaded.signals = true;
+
+    let html = '';
+
+    // === STRONG ACCUMULATION SIGNALS ===
+    const strongAccum = sm.stocks.filter(s=>s.signal==='STRONG_ACCUMULATION').sort((a,b)=>b.smartScore-a.smartScore);
+    html += '<div class="card"><div class="card-title" style="margin-bottom:4px">🟢 Strong Institutional Accumulation</div>';
+    html += '<div class="card-subtitle" style="margin-bottom:12px">Stocks where smart money is aggressively buying: positive VWAP deviation + high B/S ratio + price up</div>';
+    if(strongAccum.length){
+      html += '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>Change</th><th>Smart Score</th><th>B/S Ratio</th><th>VWAP Dev</th><th>Wall Ratio</th></tr></thead><tbody>';
+      for(const s of strongAccum){
+        html += `<tr><td style="font-weight:700">${s.symbol}</td><td class="mono">${fmt(s.ltp)}</td>
+          <td class="mono up">+${fmt(s.change)}%</td><td class="mono up">${fmt(s.smartScore,0)}</td>
+          <td class="mono up">${fmt(s.bsRatio)}</td><td class="mono up">+${fmt(s.vwapDeviation)}%</td>
+          <td class="mono">${fmt(s.wallRatio)}</td></tr>`;
+      }
+      html += '</tbody></table>';
+    } else html += '<div class="dim" style="padding:12px">No strong accumulation signals currently</div>';
+    html += '</div>';
+
+    // === STRONG DISTRIBUTION SIGNALS ===
+    const strongDist = sm.stocks.filter(s=>s.signal==='STRONG_DISTRIBUTION').sort((a,b)=>a.smartScore-b.smartScore);
+    html += '<div class="card"><div class="card-title" style="margin-bottom:4px">🔴 Strong Institutional Distribution</div>';
+    html += '<div class="card-subtitle" style="margin-bottom:12px">Stocks where smart money is aggressively selling: negative VWAP deviation + low B/S ratio + price down</div>';
+    if(strongDist.length){
+      html += '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>Change</th><th>Smart Score</th><th>B/S Ratio</th><th>VWAP Dev</th></tr></thead><tbody>';
+      for(const s of strongDist){
+        html += `<tr><td style="font-weight:700">${s.symbol}</td><td class="mono">${fmt(s.ltp)}</td>
+          <td class="mono dn">${fmt(s.change)}%</td><td class="mono dn">${fmt(s.smartScore,0)}</td>
+          <td class="mono dn">${fmt(s.bsRatio)}</td><td class="mono dn">${fmt(s.vwapDeviation)}%</td></tr>`;
+      }
+      html += '</tbody></table>';
+    } else html += '<div class="dim" style="padding:12px">No strong distribution signals currently</div>';
+    html += '</div>';
+
+    // === OVERSOLD BOUNCES ===
+    const oversold = mom.stocks.filter(s=>s.rsi&&s.rsi<30).sort((a,b)=>a.rsi-b.rsi);
+    html += '<div class="card"><div class="card-title" style="margin-bottom:4px">📉 Oversold — Potential Reversal</div>';
+    html += '<div class="card-subtitle" style="margin-bottom:12px">RSI below 30 — historically these levels indicate oversold conditions. Watch for reversal confirmation.</div>';
+    if(oversold.length){
+      html += '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>RSI</th><th>1W</th><th>1M</th><th>From 52W Low</th><th>Divergence</th></tr></thead><tbody>';
+      for(const s of oversold){
+        html += `<tr><td style="font-weight:700">${s.symbol}</td><td class="mono">${fmt(s.ltp)}</td>
+          <td class="mono up">${fmt(s.rsi,1)}</td>
+          <td class="mono ${chgClass(s.chg1w)}">${s.chg1w>=0?'+':''}${fmt(s.chg1w)}%</td>
+          <td class="mono ${chgClass(s.chg1m)}">${s.chg1m>=0?'+':''}${fmt(s.chg1m)}%</td>
+          <td class="mono up">+${fmt(s.distFrom52wLow)}%</td>
+          <td>${s.divergence==='bullish'?'<span class="signal signal-bull">BULL DIV</span>':'—'}</td></tr>`;
+      }
+      html += '</tbody></table>';
+    } else html += '<div class="dim" style="padding:12px">No oversold stocks currently</div>';
+    html += '</div>';
+
+    // === OVERBOUGHT WARNINGS ===
+    const overbought = mom.stocks.filter(s=>s.rsi&&s.rsi>70).sort((a,b)=>b.rsi-a.rsi);
+    html += '<div class="card"><div class="card-title" style="margin-bottom:4px">📈 Overbought — Potential Correction</div>';
+    html += '<div class="card-subtitle" style="margin-bottom:12px">RSI above 70 — may see profit booking. Bearish divergence = stronger sell signal.</div>';
+    if(overbought.length){
+      html += '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>RSI</th><th>1W</th><th>1M</th><th>From 52W High</th><th>Divergence</th></tr></thead><tbody>';
+      for(const s of overbought){
+        html += `<tr><td style="font-weight:700">${s.symbol}</td><td class="mono">${fmt(s.ltp)}</td>
+          <td class="mono dn">${fmt(s.rsi,1)}</td>
+          <td class="mono ${chgClass(s.chg1w)}">${s.chg1w>=0?'+':''}${fmt(s.chg1w)}%</td>
+          <td class="mono ${chgClass(s.chg1m)}">${s.chg1m>=0?'+':''}${fmt(s.chg1m)}%</td>
+          <td class="mono dn">-${fmt(s.distFrom52wHigh)}%</td>
+          <td>${s.divergence==='bearish'?'<span class="signal signal-bear">BEAR DIV</span>':'—'}</td></tr>`;
+      }
+      html += '</tbody></table>';
+    } else html += '<div class="dim" style="padding:12px">No overbought stocks currently</div>';
+    html += '</div>';
+
+    // === GOLDEN/DEATH CROSSES ===
+    const crosses = mom.stocks.filter(s=>s.crossSignal!=='none');
+    if(crosses.length){
+      html += '<div class="card"><div class="card-title" style="margin-bottom:4px">⚡ Moving Average Crossovers</div>';
+      html += '<div class="card-subtitle" style="margin-bottom:12px">Golden Cross (SMA50 crosses above SMA200) = major bullish. Death Cross = major bearish.</div>';
+      html += '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>Signal</th><th>SMA50</th><th>SMA200</th><th>1M</th></tr></thead><tbody>';
+      for(const s of crosses){
+        const isBull = s.crossSignal === 'golden_cross';
+        html += `<tr><td style="font-weight:700">${s.symbol}</td><td class="mono">${fmt(s.ltp)}</td>
+          <td><span class="signal ${isBull?'signal-bull':'signal-bear'}">${isBull?'GOLDEN CROSS':'DEATH CROSS'}</span></td>
+          <td class="mono">${fmt(s.sma50)}</td><td class="mono">${fmt(s.sma200)}</td>
+          <td class="mono ${chgClass(s.chg1m)}">${s.chg1m>=0?'+':''}${fmt(s.chg1m)}%</td></tr>`;
+      }
+      html += '</tbody></table></div>';
+    }
+
+    // === NEAR 52-WEEK HIGH (Breakout candidates) ===
+    const near52h = mom.stocks.filter(s=>s.distFrom52wHigh<5).sort((a,b)=>a.distFrom52wHigh-b.distFrom52wHigh);
+    html += '<div class="card"><div class="card-title" style="margin-bottom:4px">🎯 Near 52-Week High — Breakout Watch</div>';
+    html += '<div class="card-subtitle" style="margin-bottom:12px">Stocks within 5% of their 52-week high. Could break out or face resistance.</div>';
+    if(near52h.length){
+      html += '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>52W High</th><th>Distance</th><th>RSI</th><th>Trend Score</th></tr></thead><tbody>';
+      for(const s of near52h){
+        html += `<tr><td style="font-weight:700">${s.symbol}</td><td class="mono">${fmt(s.ltp)}</td>
+          <td class="mono">${fmt(s.high52w)}</td><td class="mono up">-${fmt(s.distFrom52wHigh)}%</td>
+          <td class="mono">${fmt(s.rsi,1)}</td><td class="mono up">+${s.trendScore}</td></tr>`;
+      }
+      html += '</tbody></table>';
+    } else html += '<div class="dim" style="padding:12px">No stocks near 52-week high</div>';
+    html += '</div>';
+
+    // === BEATEN DOWN (Deep value) ===
+    const beaten = mom.stocks.filter(s=>s.distFrom52wHigh>30).sort((a,b)=>b.distFrom52wHigh-a.distFrom52wHigh);
+    html += '<div class="card"><div class="card-title" style="margin-bottom:4px">💰 Deep Value — Beaten Down >30% from 52W High</div>';
+    html += '<div class="card-subtitle" style="margin-bottom:12px">Stocks that have corrected significantly. Potential value picks if fundamentals are intact.</div>';
+    if(beaten.length){
+      html += '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>52W High</th><th>Drawdown</th><th>RSI</th><th>1M</th><th>3M</th></tr></thead><tbody>';
+      for(const s of beaten){
+        html += `<tr><td style="font-weight:700">${s.symbol}</td><td class="mono">${fmt(s.ltp)}</td>
+          <td class="mono">${fmt(s.high52w)}</td><td class="mono dn">-${fmt(s.distFrom52wHigh)}%</td>
+          <td class="mono">${fmt(s.rsi,1)}</td>
+          <td class="mono ${chgClass(s.chg1m)}">${s.chg1m>=0?'+':''}${fmt(s.chg1m)}%</td>
+          <td class="mono ${chgClass(s.chg3m)}">${s.chg3m>=0?'+':''}${fmt(s.chg3m)}%</td></tr>`;
+      }
+      html += '</tbody></table>';
+    } else html += '<div class="dim" style="padding:12px">No deeply beaten stocks</div>';
+    html += '</div>';
+
+    // === GAP SIGNALS ===
+    const gaps = mom.stocks.filter(s=>s.gapType!=='none').sort((a,b)=>Math.abs(b.gap)-Math.abs(a.gap));
+    if(gaps.length){
+      html += '<div class="card"><div class="card-title" style="margin-bottom:4px">📊 Today\'s Gap Signals</div>';
+      html += '<div class="card-subtitle" style="margin-bottom:12px">Stocks that opened with a significant gap (>1%) — indicates overnight sentiment shift.</div>';
+      html += '<table class="tbl"><thead><tr><th>Symbol</th><th>LTP</th><th>Gap</th><th>Type</th><th>Volume Signal</th></tr></thead><tbody>';
+      for(const s of gaps){
+        const isUp = s.gapType === 'gap_up';
+        html += `<tr><td style="font-weight:700">${s.symbol}</td><td class="mono">${fmt(s.ltp)}</td>
+          <td class="mono ${isUp?'up':'dn'}">${s.gap>=0?'+':''}${fmt(s.gap)}%</td>
+          <td><span class="badge ${isUp?'badge-green':'badge-red'}">${isUp?'GAP UP':'GAP DOWN'}</span></td>
+          <td class="dim">—</td></tr>`;
+      }
+      html += '</tbody></table></div>';
+    }
+
+    // === MARKET REGIME ===
+    const avgTrend = mom.stocks.reduce((a,s)=>a+s.trendScore,0)/mom.stocks.length;
+    const above200 = mom.stocks.filter(s=>s.aboveSMA200===true).length;
+    const total = mom.stocks.filter(s=>s.aboveSMA200!==null).length;
+    const regime = avgTrend>20?'STRONG BULL':avgTrend>5?'BULL':avgTrend>-5?'NEUTRAL':avgTrend>-20?'BEAR':'STRONG BEAR';
+    const regCls = avgTrend>5?'signal-bull':avgTrend<-5?'signal-bear':'signal-neutral';
+
+    html += `<div class="card"><div class="card-title" style="margin-bottom:12px">🏛️ Market Regime Assessment</div>
+      <div class="stats">
+        <div class="stat"><div class="stat-label">Regime</div><div class="stat-value"><span class="signal ${regCls}" style="font-size:1rem">${regime}</span></div></div>
+        <div class="stat"><div class="stat-label">Avg Trend Score</div><div class="stat-value mono ${avgTrend>=0?'up':'dn'}">${fmt(avgTrend,0)}</div></div>
+        <div class="stat"><div class="stat-label">Above SMA200</div><div class="stat-value mono">${above200}/${total}</div>
+          <div class="stat-sub">${total>0?fmt(above200/total*100,0)+'%':''} of stocks</div></div>
+        <div class="stat"><div class="stat-label">Market B/S</div><div class="stat-value mono ${sm.marketBSRatio>1?'up':'dn'}">${fmt(sm.marketBSRatio)}</div></div>
+      </div></div>`;
+
+    document.getElementById('sig-content').innerHTML = html;
+  }catch(e){
+    document.getElementById('sig-content').innerHTML = `<div style="color:var(--red);padding:20px">${e.message}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════
+// Inject footer into every tab panel
+document.querySelectorAll('.tab-panel').forEach(panel=>{
+  const footer = document.createElement('div');
+  footer.className = 'page-footer';
+  footer.innerHTML = 'Built by <span class="creator">Kanishk Arora</span><div class="version">NSE Pulse Pro v5.0 — Institutional Grade Terminal</div>';
+  panel.appendChild(footer);
+});
+
+checkAuth();
+</script>
+</body>
+</html>
