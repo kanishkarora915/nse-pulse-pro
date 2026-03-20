@@ -1585,6 +1585,490 @@ class AIAnalysisHandler(Base):
         cache_set(ck, response, CACHE_TTL_AI)
         self.write_json_gzip(response)
 
+# ── STOCK DETAIL (Single Stock Deep Analysis) ─────────────
+
+CACHE_TTL_STOCKDETAIL = 15  # seconds
+
+class StockDetailHandler(Base):
+    async def post(self):
+        s = self.require_session()
+        if not s: return
+        b = self.body()
+        symbol = b.get("symbol", "").strip().upper()
+        if not symbol:
+            return self.err(400, "Need symbol")
+        if symbol not in SYM:
+            return self.err(404, f"Unknown symbol: {symbol}")
+
+        ck = f"stockdetail:{s['api_key']}:{symbol}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
+
+        loop = tornado.ioloop.IOLoop.current()
+        to_date = datetime.now().strftime("%Y-%m-%d")
+        from_date_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+
+        # ── Parallel fetches: quote, 1-year historical, NIFTY 50 historical ──
+        def fetch_quote(session, sym):
+            try:
+                r = requests.get(f"{KITE}/quote", params=[("i", f"NSE:{sym}")],
+                                 headers=kh_for(session), timeout=15)
+                r.raise_for_status()
+                return r.json().get("data", {}).get(f"NSE:{sym}", {})
+            except:
+                return {}
+
+        try:
+            fut_quote = loop.run_in_executor(pool, fetch_quote, s, symbol)
+            fut_hist = loop.run_in_executor(pool, fetch_historical_for, s, symbol, from_date_1y, to_date)
+            fut_nifty = loop.run_in_executor(pool, lambda: self._fetch_nifty_hist(s, from_date_1y, to_date))
+
+            quote_data, (candles, hist_err), nifty_candles = await tornado.gen.multi([
+                fut_quote, fut_hist, fut_nifty
+            ])
+        except Exception as e:
+            return self.err(500, f"Fetch error: {str(e)[:100]}")
+
+        if not quote_data:
+            return self.err(502, f"Could not fetch quote for {symbol}")
+        if hist_err or not candles or len(candles) < 20:
+            return self.err(502, f"Could not fetch historical data for {symbol}: {hist_err or 'insufficient data'}")
+
+        # ── Parse candles ──
+        opens, highs, lows, closes, volumes, timestamps = parse_candles(candles)
+        ltp = quote_data.get("last_price", closes[-1])
+        ep = ltp  # effective price
+
+        # ── 1. Live Quote Data ──
+        ohlc = quote_data.get("ohlc", {})
+        depth = quote_data.get("depth", {})
+        buy_depth = depth.get("buy", [])
+        sell_depth = depth.get("sell", [])
+        buy_quantity = quote_data.get("buy_quantity", 0)
+        sell_quantity = quote_data.get("sell_quantity", 0)
+        avg_price = quote_data.get("average_price", 0)
+        today_volume = quote_data.get("volume", 0)
+        prev_close = ohlc.get("close", 0)
+
+        quote_result = {
+            "ltp": ltp,
+            "open": ohlc.get("open", 0),
+            "high": ohlc.get("high", 0),
+            "low": ohlc.get("low", 0),
+            "close": ohlc.get("close", 0),
+            "prev_close": prev_close,
+            "volume": today_volume,
+            "avg_price": avg_price,
+            "buy_quantity": buy_quantity,
+            "sell_quantity": sell_quantity,
+            "oi": quote_data.get("oi", 0),
+            "ohlc": ohlc,
+            "depth": depth,
+        }
+
+        # ── 2. Historical Analysis (1 year) ──
+        rsi = calc_rsi(closes)
+        macd_val, macd_sig, macd_hist = calc_macd(closes)
+        bb_mid, bb_upper, bb_lower = calc_bollinger(closes)
+        atr = calc_atr(highs, lows, closes)
+        adx = calc_adx(highs, lows, closes)
+        volatility = calc_volatility(closes)
+        max_dd, _, _ = calc_max_drawdown(closes)
+        stock_returns = calc_returns(closes)
+        sharpe = calc_sharpe(stock_returns)
+
+        # Beta vs NIFTY 50
+        nifty_returns = []
+        if nifty_candles:
+            _, _, _, ncl, _, _ = parse_candles(nifty_candles)
+            nifty_returns = calc_returns(ncl)
+        beta = calc_beta(stock_returns, nifty_returns) if nifty_returns else None
+
+        # SMA values
+        sma20 = round(sum(closes[-20:]) / min(len(closes), 20), 2) if len(closes) >= 20 else round(ep, 2)
+        sma50 = round(sum(closes[-50:]) / 50, 2) if len(closes) >= 50 else None
+        sma200 = round(sum(closes[-200:]) / 200, 2) if len(closes) >= 200 else None
+
+        sma_result = {
+            "sma20": sma20,
+            "sma50": sma50,
+            "sma200": sma200,
+            "aboveSMA20": ep > sma20 if sma20 else None,
+            "aboveSMA50": ep > sma50 if sma50 else None,
+            "aboveSMA200": ep > sma200 if sma200 else None,
+        }
+
+        technicals = {
+            "rsi": rsi,
+            "macd": macd_val,
+            "macdSignal": macd_sig,
+            "macdHist": macd_hist,
+            "bbMid": bb_mid,
+            "bbUpper": bb_upper,
+            "bbLower": bb_lower,
+            "atr": atr,
+            "adx": adx,
+            "volatility": volatility,
+            "sharpe": sharpe,
+            "beta": beta,
+            "maxDrawdown": max_dd,
+        }
+
+        # Support / Resistance
+        resistances, supports = calc_support_resistance(highs, lows, closes)
+
+        # 52-week high/low
+        high_52w = round(max(highs), 2)
+        low_52w = round(min(lows), 2)
+        dist_52h = round((high_52w - ep) / high_52w * 100, 2) if high_52w > 0 else 0
+        dist_52l = round((ep - low_52w) / low_52w * 100, 2) if low_52w > 0 else 0
+
+        levels = {
+            "supports": supports,
+            "resistances": resistances,
+            "52wHigh": high_52w,
+            "52wLow": low_52w,
+            "distFrom52wHigh": dist_52h,
+            "distFrom52wLow": dist_52l,
+        }
+
+        # Returns
+        chg_1w = round((ep / closes[-6] - 1) * 100, 2) if len(closes) >= 6 else 0
+        chg_1m = round((ep / closes[-22] - 1) * 100, 2) if len(closes) >= 22 else 0
+        chg_3m = round((ep / closes[-66] - 1) * 100, 2) if len(closes) >= 66 else 0
+        chg_6m = round((ep / closes[-132] - 1) * 100, 2) if len(closes) >= 132 else 0
+        chg_1y = round((ep / closes[0] - 1) * 100, 2) if closes[0] > 0 else 0
+
+        returns_result = {
+            "chg1w": chg_1w, "chg1m": chg_1m, "chg3m": chg_3m,
+            "chg6m": chg_6m, "chg1y": chg_1y,
+        }
+
+        # ── 3. AI Targets & Stop Loss ──
+        atr_val = atr if atr else 0
+        s1 = supports[0] if supports else ep * 0.97
+        r2 = resistances[1] if len(resistances) > 1 else ep * 1.05
+
+        target1 = round(ep + 1 * atr_val, 2)
+        target2 = round(ep + 2 * atr_val, 2)
+        target3 = round(r2, 2)
+        stop_loss = round(max(s1, ep - 1.5 * atr_val), 2)
+        risk = ep - stop_loss
+        reward = target1 - ep
+        risk_reward = round(reward / risk, 2) if risk > 0 else 0
+
+        targets = {
+            "target1": target1,
+            "target2": target2,
+            "target3": target3,
+            "stopLoss": stop_loss,
+            "riskReward": risk_reward,
+        }
+
+        # ── 4. AI Buy/Sell Timing ──
+        rsi_val = rsi if rsi else 50
+        macd_h = macd_hist if macd_hist else 0
+        above_sma200 = (ep > sma200) if sma200 else False
+        above_sma50 = (ep > sma50) if sma50 else False
+        above_sma20 = ep > sma20
+
+        # Detect MACD histogram turning positive
+        macd_turning_positive = False
+        if len(closes) > 36:
+            _, _, prev_hist = calc_macd(closes[:-1])
+            if prev_hist is not None and prev_hist < 0 and macd_h > 0:
+                macd_turning_positive = True
+
+        # Buy signal
+        if rsi_val < 35 and ep <= s1 * 1.02 and macd_turning_positive:
+            buy_signal = "NOW - Strong Buy Zone"
+            buy_confidence = 85
+        elif rsi_val < 45 and above_sma200:
+            buy_signal = "Accumulate on dips"
+            buy_confidence = 65
+        elif rsi_val > 60 and above_sma20 and above_sma50 and above_sma200:
+            buy_signal = "Trending - buy on pullbacks to SMA20"
+            buy_confidence = 55
+        else:
+            buy_signal = "Wait for better entry"
+            buy_confidence = 30
+
+        # Sell signal
+        divergence = detect_divergence(closes)
+        if rsi_val > 80 and divergence == "bearish":
+            sell_signal = "Exit - overbought with divergence"
+            sell_confidence = 85
+        elif rsi_val > 75:
+            sell_signal = "Book partial profits"
+            sell_confidence = 70
+        elif not above_sma50 and macd_h < 0:
+            sell_signal = "Exit - trend broken"
+            sell_confidence = 75
+        else:
+            sell_signal = f"Hold with trailing SL at {stop_loss}"
+            sell_confidence = 40
+
+        confidence = max(buy_confidence, sell_confidence)
+
+        timing = {
+            "buySignal": buy_signal,
+            "sellSignal": sell_signal,
+            "confidence": confidence,
+        }
+
+        # ── 5. AI Reasons (bullish/bearish) ──
+        bullish_reasons = []
+        bearish_reasons = []
+        net_score = 0
+
+        # RSI
+        if rsi_val < 30:
+            bullish_reasons.append("RSI oversold (<30) - reversal likely")
+            net_score += 15
+        elif rsi_val < 40:
+            bullish_reasons.append("RSI approaching oversold zone")
+            net_score += 8
+        elif rsi_val > 70:
+            bearish_reasons.append("RSI overbought (>70) - correction risk")
+            net_score -= 15
+        elif rsi_val > 60:
+            bullish_reasons.append("RSI in bullish zone (>60)")
+            net_score += 5
+
+        # MACD
+        if macd_h > 0:
+            bullish_reasons.append(f"MACD histogram positive ({macd_h})")
+            net_score += 10
+        elif macd_h < 0:
+            bearish_reasons.append(f"MACD histogram negative ({macd_h})")
+            net_score -= 10
+
+        if macd_val is not None and macd_sig is not None:
+            if macd_val > macd_sig:
+                bullish_reasons.append("MACD above signal line - bullish crossover")
+                net_score += 8
+            else:
+                bearish_reasons.append("MACD below signal line - bearish crossover")
+                net_score -= 8
+
+        # Price vs SMAs
+        if above_sma20:
+            bullish_reasons.append(f"Price above SMA20 ({sma20})")
+            net_score += 5
+        else:
+            bearish_reasons.append(f"Price below SMA20 ({sma20})")
+            net_score -= 5
+
+        if sma50 is not None:
+            if above_sma50:
+                bullish_reasons.append(f"Price above SMA50 ({sma50})")
+                net_score += 8
+            else:
+                bearish_reasons.append(f"Price below SMA50 ({sma50})")
+                net_score -= 8
+
+        if sma200 is not None:
+            if above_sma200:
+                bullish_reasons.append(f"Price above SMA200 ({sma200}) - long-term uptrend")
+                net_score += 12
+            else:
+                bearish_reasons.append(f"Price below SMA200 ({sma200}) - long-term downtrend")
+                net_score -= 12
+
+        # Volume trend
+        if len(volumes) >= 10:
+            recent_vol = sum(volumes[-5:]) / 5
+            older_vol = sum(volumes[-10:-5]) / 5 if len(volumes) >= 10 else recent_vol
+            if older_vol > 0:
+                vol_trend = (recent_vol / older_vol - 1) * 100
+                if vol_trend > 20:
+                    bullish_reasons.append(f"Volume surging (+{round(vol_trend, 1)}%)")
+                    net_score += 7
+                elif vol_trend < -20:
+                    bearish_reasons.append(f"Volume declining ({round(vol_trend, 1)}%)")
+                    net_score -= 5
+
+        # Bollinger Band position
+        if bb_upper and bb_lower:
+            if ep > bb_upper:
+                bearish_reasons.append("Price above upper Bollinger Band - overextended")
+                net_score -= 8
+            elif ep < bb_lower:
+                bullish_reasons.append("Price below lower Bollinger Band - oversold bounce likely")
+                net_score += 8
+
+        # Divergence
+        if divergence == "bullish":
+            bullish_reasons.append("Bullish divergence detected (price down, RSI up)")
+            net_score += 12
+        elif divergence == "bearish":
+            bearish_reasons.append("Bearish divergence detected (price up, RSI down)")
+            net_score -= 12
+
+        # Beta
+        if beta is not None:
+            if beta > 1.3:
+                bearish_reasons.append(f"High beta ({beta}) - amplified market risk")
+                net_score -= 3
+            elif beta < 0.7:
+                bullish_reasons.append(f"Low beta ({beta}) - defensive stock")
+                net_score += 3
+
+        # Buy/Sell quantity from live quote
+        if buy_quantity > 0 and sell_quantity > 0:
+            bs_ratio = buy_quantity / sell_quantity
+            if bs_ratio > 1.3:
+                bullish_reasons.append(f"Strong buy-side demand (B/S ratio: {round(bs_ratio, 2)})")
+                net_score += 6
+            elif bs_ratio < 0.7:
+                bearish_reasons.append(f"Strong sell-side pressure (B/S ratio: {round(bs_ratio, 2)})")
+                net_score -= 6
+
+        # Determine verdict
+        if net_score >= 30:
+            verdict = "STRONG BUY"
+        elif net_score >= 10:
+            verdict = "BUY"
+        elif net_score >= -10:
+            verdict = "HOLD"
+        elif net_score >= -30:
+            verdict = "SELL"
+        else:
+            verdict = "STRONG SELL"
+
+        ai_verdict = {
+            "verdict": verdict,
+            "score": net_score,
+            "bullishReasons": bullish_reasons,
+            "bearishReasons": bearish_reasons,
+        }
+
+        # ── 6. Last 7 Days Trading Data ──
+        last7_candles = candles[-7:] if len(candles) >= 7 else candles
+        last7_data = []
+        last7_total_vol = 0
+        for i, c in enumerate(last7_candles):
+            dt = c[0][:10] if isinstance(c[0], str) else str(c[0])[:10]
+            c_open, c_high, c_low, c_close, c_vol = c[1], c[2], c[3], c[4], c[5]
+            prev_c = last7_candles[i - 1][4] if i > 0 else (candles[-8][4] if len(candles) > 7 else c_open)
+            day_chg = round((c_close / prev_c - 1) * 100, 2) if prev_c > 0 else 0
+            buy_pressure = c_vol if c_close > c_open else -c_vol
+            last7_total_vol += c_vol
+            last7_data.append({
+                "date": dt,
+                "open": round(c_open, 2),
+                "high": round(c_high, 2),
+                "low": round(c_low, 2),
+                "close": round(c_close, 2),
+                "volume": c_vol,
+                "change": day_chg,
+                "buyPressure": buy_pressure,
+            })
+
+        avg_7d_vol = round(last7_total_vol / max(len(last7_candles), 1))
+
+        # ── 7. Delivery/Institutional Participation Estimate ──
+        bs_ratio_live = round(buy_quantity / sell_quantity, 2) if sell_quantity > 0 else 0
+        vwap_dev = calc_vwap_deviation(ltp, avg_price) if avg_price > 0 else 0
+        buy_wall = sum(b_item.get("quantity", 0) for b_item in buy_depth[:3]) if buy_depth else 0
+        sell_wall = sum(s_item.get("quantity", 0) for s_item in sell_depth[:3]) if sell_depth else 0
+        wall_ratio = round(buy_wall / sell_wall, 2) if sell_wall > 0 else 0
+
+        if bs_ratio_live > 1.3:
+            inst_assessment = "Strong institutional buying suspected"
+        elif bs_ratio_live > 1.1:
+            inst_assessment = "Moderate institutional interest"
+        elif bs_ratio_live < 0.7:
+            inst_assessment = "Institutional selling suspected"
+        else:
+            inst_assessment = "Neutral institutional activity"
+
+        # Promoter interest heuristic based on index membership
+        is_nifty50 = symbol in NIFTY50
+        promoter_interest = "High (NIFTY50 large cap)" if is_nifty50 else "Unknown"
+
+        institutional_activity = {
+            "bsRatio": bs_ratio_live,
+            "vwapDev": vwap_dev,
+            "buyWall": buy_wall,
+            "sellWall": sell_wall,
+            "wallRatio": wall_ratio,
+            "assessment": inst_assessment,
+            "promoterInterest": promoter_interest,
+        }
+
+        # ── 8. Block Deal Indicator ──
+        vol_ratio = round(today_volume / avg_7d_vol, 2) if avg_7d_vol > 0 else 0
+        block_deal_flag = vol_ratio > 5
+        block_deal_days = []
+        for day_data in last7_data:
+            if avg_7d_vol > 0 and day_data["volume"] > 3 * avg_7d_vol:
+                block_deal_days.append({
+                    "date": day_data["date"],
+                    "volume": day_data["volume"],
+                    "ratio": round(day_data["volume"] / avg_7d_vol, 2),
+                })
+
+        volume_analysis = {
+            "avg7DayVol": avg_7d_vol,
+            "todayVol": today_volume,
+            "volRatio": vol_ratio,
+            "blockDealFlag": block_deal_flag,
+            "blockDealDays": block_deal_days,
+        }
+
+        # ── 9. Sparkline data ──
+        sparkline = [round(c, 2) for c in (closes[-30:] if len(closes) >= 30 else closes)]
+
+        # ── Build response ──
+        stock_name = SYM.get(symbol, {}).get("name", symbol)
+        sector = STOCK_SECTOR.get(symbol, "Other")
+
+        response = {
+            "symbol": symbol,
+            "name": stock_name,
+            "sector": sector,
+            "ltp": ltp,
+            "quote": quote_result,
+            "technicals": technicals,
+            "sma": sma_result,
+            "levels": levels,
+            "returns": returns_result,
+            "targets": targets,
+            "timing": timing,
+            "aiVerdict": ai_verdict,
+            "last7Days": last7_data,
+            "volumeAnalysis": volume_analysis,
+            "institutionalActivity": institutional_activity,
+            "sparkline": sparkline,
+        }
+
+        cache_set(ck, response, CACHE_TTL_STOCKDETAIL)
+        self.write_json_gzip(response)
+
+    def _fetch_nifty_hist(self, session, from_date, to_date):
+        """Fetch NIFTY 50 index historical data using token 256265."""
+        ck = f"hist:{session['api_key']}:NIFTY50_IDX:{from_date}:{to_date}:day"
+        cached = cache_get(ck)
+        if cached is not None:
+            return cached
+        try:
+            r = requests.get(
+                f"{KITE}/instruments/historical/256265/day",
+                params={"from": f"{from_date} 09:15:00", "to": f"{to_date} 15:30:00"},
+                headers=kh_for(session), timeout=15)
+            r.raise_for_status()
+            candles = r.json().get("data", {}).get("candles", [])
+            if candles:
+                cache_set(ck, candles, CACHE_TTL_HISTORICAL)
+                return candles
+            return None
+        except:
+            return None
+
+
 # ═══════════════════════════════════════════════════════════
 #  APP
 # ═══════════════════════════════════════════════════════════
@@ -1616,6 +2100,7 @@ def make_app():
         (r"/api/optionchain", OptionChainHandler),
         (r"/api/constituents", IndexConstituentsHandler),
         (r"/api/aianalysis", AIAnalysisHandler),
+        (r"/api/stockdetail", StockDetailHandler),
     ], cookie_secret=hashlib.sha256(os.urandom(32)).hexdigest(), debug=True)
 
 if __name__ == "__main__":
