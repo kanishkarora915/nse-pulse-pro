@@ -65,6 +65,72 @@ def gzip_compress(data_bytes):
     return gzip.compress(data_bytes, compresslevel=6)
 
 # ═══════════════════════════════════════════════════════════
+#  LICENSE KEY SYSTEM — By Kanishk Arora
+# ═══════════════════════════════════════════════════════════
+LICENSE_FILE = os.path.join(DIR, "licenses.json")
+MASTER_KEY = "KANISHK-MASTER-2026"  # Admin key to manage licenses
+
+def load_licenses():
+    """Load license keys from file"""
+    if os.path.isfile(LICENSE_FILE):
+        try:
+            with open(LICENSE_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    # Default: 20 pre-generated keys + master
+    default = {
+        "keys": {
+            "PULSE-PRO-001": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-002": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-003": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-004": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-005": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-006": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-007": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-008": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-009": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-010": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-011": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-012": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-013": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-014": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-015": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-016": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-017": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-018": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-019": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+            "PULSE-PRO-020": {"active": True, "user": "", "created": "2026-03-21", "uses": 0},
+        }
+    }
+    save_licenses(default)
+    return default
+
+def save_licenses(data):
+    """Save license keys to file"""
+    try:
+        with open(LICENSE_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"  License save error: {e}")
+
+def verify_license(key):
+    """Check if a license key is valid and active"""
+    if key == MASTER_KEY:
+        return True, "Master key — full access"
+    data = load_licenses()
+    info = data["keys"].get(key)
+    if not info:
+        return False, "Invalid license key"
+    if not info.get("active", False):
+        return False, "License key has been deactivated"
+    # Update usage
+    info["uses"] = info.get("uses", 0) + 1
+    info["last_used"] = datetime.now().isoformat()
+    save_licenses(data)
+    return True, "Valid license"
+
+# ═══════════════════════════════════════════════════════════
 #  MULTI-USER SESSION MANAGEMENT
 # ═══════════════════════════════════════════════════════════
 MAX_SESSIONS = 30
@@ -483,11 +549,92 @@ class HealthHandler(tornado.web.RequestHandler):
         self.set_header("Content-Type","application/json")
         self.write(json.dumps({"status":"ok","uptime":round(time.time()-_server_start,1),"sessions":len(sessions),"instruments":len(SYM)}))
 
+# ── License Key Verification ──────────────────────────────
+
+class LicenseVerifyHandler(Base):
+    def post(self):
+        b = self.body()
+        key = b.get("license_key", "").strip().upper()
+        if not key:
+            return self.err(400, "License key required")
+        valid, msg = verify_license(key)
+        if valid:
+            self.set_cookie("pp_license", key, expires_days=30, httponly=True, samesite="Lax")
+            self.write({"valid": True, "message": msg})
+        else:
+            self.write({"valid": False, "error": msg})
+
+class LicenseAdminHandler(Base):
+    """Admin endpoint to manage license keys — requires master key"""
+    def post(self):
+        b = self.body()
+        master = b.get("master_key", "").strip()
+        if master != MASTER_KEY:
+            return self.err(403, "Invalid master key")
+        action = b.get("action", "")
+        data = load_licenses()
+        if action == "list":
+            self.write({"keys": data["keys"]})
+        elif action == "add":
+            new_key = b.get("key", f"PULSE-PRO-{uuid.uuid4().hex[:6].upper()}")
+            data["keys"][new_key] = {
+                "active": True, "user": b.get("user", ""),
+                "created": datetime.now().strftime("%Y-%m-%d"), "uses": 0
+            }
+            save_licenses(data)
+            self.write({"ok": True, "key": new_key})
+        elif action == "deactivate":
+            key = b.get("key", "")
+            if key in data["keys"]:
+                data["keys"][key]["active"] = False
+                save_licenses(data)
+                self.write({"ok": True, "deactivated": key})
+            else:
+                self.err(404, "Key not found")
+        elif action == "activate":
+            key = b.get("key", "")
+            if key in data["keys"]:
+                data["keys"][key]["active"] = True
+                save_licenses(data)
+                self.write({"ok": True, "activated": key})
+            else:
+                self.err(404, "Key not found")
+        elif action == "delete":
+            key = b.get("key", "")
+            if key in data["keys"]:
+                del data["keys"][key]
+                save_licenses(data)
+                self.write({"ok": True, "deleted": key})
+            else:
+                self.err(404, "Key not found")
+        else:
+            self.err(400, "Invalid action. Use: list, add, deactivate, activate, delete")
+
+class LicenseCheckHandler(Base):
+    """Check if current session has valid license"""
+    def get(self):
+        key = self.get_cookie("pp_license", "")
+        if not key:
+            self.write({"licensed": False})
+            return
+        valid, msg = verify_license(key)
+        self.write({"licensed": valid, "key": key[:10] + "..."})
+
 # ── Auth (Multi-User) ────────────────────────────────────
 
 class AuthHandler(Base):
     def post(self):
         b = self.body()
+        # Check license first
+        license_key = self.get_cookie("pp_license", "")
+        if not license_key:
+            license_key = b.get("license_key", "").strip().upper()
+        if license_key:
+            valid, _ = verify_license(license_key)
+            if not valid:
+                return self.err(403, "Invalid or expired license key. Contact Kanishk Arora.")
+        else:
+            return self.err(403, "License key required. Contact Kanishk Arora to get one.")
         ak = b.get("api_key","").strip()
         at = b.get("access_token","").strip()
         if not ak or not at:
@@ -511,6 +658,19 @@ class AuthHandler(Base):
 
 class LoginRedirect(tornado.web.RequestHandler):
     def get(self):
+        # Check license
+        license_key = self.get_cookie("pp_license", "")
+        if not license_key:
+            self.set_status(403)
+            self.set_header("Content-Type", "text/html")
+            self.write("<h2>License Required</h2><p>Please enter a valid license key first.</p>")
+            return
+        valid, _ = verify_license(license_key)
+        if not valid:
+            self.set_status(403)
+            self.set_header("Content-Type", "text/html")
+            self.write("<h2>Invalid License</h2><p>Your license key is invalid or expired. Contact Kanishk Arora.</p>")
+            return
         ak = self.get_argument("api_key","")
         sec = self.get_argument("api_secret","")
         if not ak or not sec:
@@ -2083,6 +2243,9 @@ def make_app():
         (r"/(icon-512\.png)", StaticFileHandler),
         (r"/callback", CallbackHandler),
         (r"/api/health", HealthHandler),
+        (r"/api/license/verify", LicenseVerifyHandler),
+        (r"/api/license/admin", LicenseAdminHandler),
+        (r"/api/license/check", LicenseCheckHandler),
         (r"/api/auth", AuthHandler),
         (r"/api/login", LoginRedirect),
         (r"/api/logout", LogoutHandler),

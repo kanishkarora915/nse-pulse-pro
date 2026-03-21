@@ -350,21 +350,52 @@ a{color:var(--accent2);text-decoration:none}
     <p>Institutional Terminal v5.0</p>
     <div style="margin-top:20px;font-size:.7rem;color:var(--text4);font-weight:500;letter-spacing:.05em">Built by <span style="color:var(--accent2);font-weight:700">Kanishk Arora</span></div>
   </div>
-  <div class="auth-tabs">
-    <div class="auth-tab active" onclick="switchAuthTab(0)">Zerodha Login</div>
-    <div class="auth-tab" onclick="switchAuthTab(1)">Direct Token</div>
+
+  <!-- STEP 1: License Key Gate -->
+  <div id="license-gate">
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:.75rem;font-weight:700;color:var(--accent2);letter-spacing:.08em;text-transform:uppercase">Step 1 — License Verification</div>
+      <div style="font-size:.68rem;color:var(--text4);margin-top:4px">Contact <span style="color:var(--accent2)">Kanishk Arora</span> to get your license key</div>
+    </div>
+    <input class="auth-input" id="license_key" placeholder="Enter License Key (e.g. PULSE-PRO-001)" autocomplete="off"
+      style="text-transform:uppercase;text-align:center;font-weight:700;letter-spacing:.1em;font-family:'JetBrains Mono',monospace">
+    <button class="auth-btn" onclick="verifyLicense()">🔐 Verify License Key</button>
+    <div class="auth-error" id="license-err"></div>
+    <div style="margin-top:20px;text-align:center;font-size:.6rem;color:var(--text4);line-height:1.6">
+      Limited access — 20 licensed users only<br>
+      Each key is unique and tracked
+    </div>
   </div>
-  <div class="auth-pane active" id="auth-oauth">
-    <input class="auth-input" id="a_key" placeholder="API Key" autocomplete="off">
-    <input class="auth-input" id="a_secret" type="password" placeholder="API Secret" autocomplete="off">
-    <button class="auth-btn" onclick="doOAuth()">Connect via Zerodha</button>
+
+  <!-- STEP 2: Zerodha Login (hidden until license verified) -->
+  <div id="zerodha-gate" style="display:none">
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 14px;border-radius:20px;background:rgba(0,184,148,.1);border:1px solid rgba(0,184,148,.2)">
+        <span style="color:var(--green);font-size:.75rem">✓</span>
+        <span style="font-size:.68rem;font-weight:700;color:var(--green);letter-spacing:.06em" id="license-status">Licensed</span>
+      </div>
+    </div>
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="font-size:.75rem;font-weight:700;color:var(--accent2);letter-spacing:.08em;text-transform:uppercase">Step 2 — Connect Your Zerodha</div>
+      <div style="font-size:.68rem;color:var(--text4);margin-top:4px">Enter your own Zerodha API credentials</div>
+    </div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" onclick="switchAuthTab(0)">Zerodha Login</div>
+      <div class="auth-tab" onclick="switchAuthTab(1)">Direct Token</div>
+    </div>
+    <div class="auth-pane active" id="auth-oauth">
+      <input class="auth-input" id="a_key" placeholder="Your Zerodha API Key" autocomplete="off">
+      <input class="auth-input" id="a_secret" type="password" placeholder="Your Zerodha API Secret" autocomplete="off">
+      <button class="auth-btn" onclick="doOAuth()">Connect via Zerodha</button>
+    </div>
+    <div class="auth-pane" id="auth-direct">
+      <input class="auth-input" id="a_key2" placeholder="Your Zerodha API Key" autocomplete="off">
+      <input class="auth-input" id="a_token" type="password" placeholder="Your Access Token" autocomplete="off">
+      <button class="auth-btn" onclick="doDirect()">Authenticate</button>
+    </div>
+    <div class="auth-error" id="auth-err"></div>
   </div>
-  <div class="auth-pane" id="auth-direct">
-    <input class="auth-input" id="a_key2" placeholder="API Key" autocomplete="off">
-    <input class="auth-input" id="a_token" type="password" placeholder="Access Token" autocomplete="off">
-    <button class="auth-btn" onclick="doDirect()">Authenticate</button>
-  </div>
-  <div class="auth-error" id="auth-err"></div>
+
   <div style="margin-top:24px;text-align:center;font-size:.65rem;color:var(--text4)">Multi-user supported — up to 20 concurrent sessions</div>
 </div>
 </div>
@@ -1027,13 +1058,64 @@ function corrColor(val){
 }
 
 // ═══════════════════════════════════════════════════════════
-//  AUTH
+//  LICENSE & AUTH
 // ═══════════════════════════════════════════════════════════
+let isLicensed = false;
+
+async function verifyLicense(){
+  const key = document.getElementById('license_key').value.trim().toUpperCase();
+  if(!key){document.getElementById('license-err').textContent='Enter a license key';return;}
+  document.getElementById('license-err').textContent='';
+  try{
+    const r = await fetch('/api/license/verify', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({license_key: key})
+    }).then(r=>r.json());
+    if(r.valid){
+      isLicensed = true;
+      localStorage.setItem('pp_license', key);
+      document.getElementById('license-gate').style.display='none';
+      document.getElementById('zerodha-gate').style.display='block';
+      document.getElementById('license-status').textContent='Licensed — ' + key;
+      // Auto-fill saved Zerodha creds if any
+      const savedKey = localStorage.getItem('pp_key');
+      if(savedKey) document.getElementById('a_key').value = savedKey;
+    } else {
+      document.getElementById('license-err').textContent = r.error || 'Invalid license key';
+      document.getElementById('license-err').style.color = 'var(--red)';
+    }
+  }catch(e){
+    document.getElementById('license-err').textContent = 'Server error — try again';
+  }
+}
+
+async function checkLicense(){
+  // Check saved license from localStorage
+  const saved = localStorage.getItem('pp_license');
+  if(saved){
+    try{
+      const r = await fetch('/api/license/verify', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({license_key: saved})
+      }).then(r=>r.json());
+      if(r.valid){
+        isLicensed = true;
+        document.getElementById('license-gate').style.display='none';
+        document.getElementById('zerodha-gate').style.display='block';
+        document.getElementById('license-status').textContent='Licensed — ' + saved;
+        return true;
+      }
+    }catch(e){}
+  }
+  return false;
+}
+
 function switchAuthTab(i){
   document.querySelectorAll('.auth-tab').forEach((t,j)=>t.classList.toggle('active',j===i));
   document.querySelectorAll('.auth-pane').forEach((p,j)=>p.classList.toggle('active',j===i));
 }
 async function doOAuth(){
+  if(!isLicensed){document.getElementById('auth-err').textContent='Please verify license key first';return;}
   const key=document.getElementById('a_key').value.trim();
   const secret=document.getElementById('a_secret').value.trim();
   if(!key||!secret){document.getElementById('auth-err').textContent='Enter API key and secret';return;}
@@ -1041,6 +1123,7 @@ async function doOAuth(){
   window.location.href=`/api/login?api_key=${encodeURIComponent(key)}&api_secret=${encodeURIComponent(secret)}`;
 }
 async function doDirect(){
+  if(!isLicensed){document.getElementById('auth-err').textContent='Please verify license key first';return;}
   const key=document.getElementById('a_key2').value.trim();
   const tok=document.getElementById('a_token').value.trim();
   if(!key||!tok){document.getElementById('auth-err').textContent='Enter API key and token';return;}
@@ -1052,6 +1135,8 @@ async function doDirect(){
 }
 async function checkAuth(){
   try{
+    // First check license
+    await checkLicense();
     const s=await apiGet('/status');
     if(s.ok){initApp();return;}
     const key=localStorage.getItem('pp_key');
@@ -1069,8 +1154,14 @@ async function doLogout(){
   localStorage.removeItem('pp_key');
   localStorage.removeItem('pp_token');
   localStorage.removeItem('pp_secret');
+  // Keep license key — don't remove it on logout
   document.getElementById('app').classList.remove('show');
   document.getElementById('auth').classList.remove('hide');
+  // Show zerodha gate (license already verified)
+  if(isLicensed){
+    document.getElementById('license-gate').style.display='none';
+    document.getElementById('zerodha-gate').style.display='block';
+  }
   tabLoaded = {};
   apiCache.clear();
   stopAllAutoRefresh();
