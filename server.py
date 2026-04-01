@@ -2230,6 +2230,418 @@ class StockDetailHandler(Base):
 
 
 # ═══════════════════════════════════════════════════════════
+#  BUY SCANNER ENGINE — Signal Brain
+#  Multi-factor buy-only scoring: 0-100
+# ═══════════════════════════════════════════════════════════
+
+CACHE_TTL_SCANNER = 20  # seconds
+
+def calc_ema_single(data, period):
+    """Return the latest EMA value only."""
+    if len(data) < period: return None
+    k = 2/(period+1)
+    ema = sum(data[:period])/period
+    for i in range(period, len(data)):
+        ema = data[i]*k + ema*(1-k)
+    return ema
+
+def calc_adx_full(highs, lows, closes, period=14):
+    """Return ADX value plus +DI and -DI for trend direction."""
+    if len(closes) < period*2: return None, None, None
+    plus_dm = []; minus_dm = []; tr_list = []
+    for i in range(1, len(closes)):
+        up = highs[i] - highs[i-1]
+        down = lows[i-1] - lows[i]
+        plus_dm.append(up if up > down and up > 0 else 0)
+        minus_dm.append(down if down > up and down > 0 else 0)
+        tr = max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1]))
+        tr_list.append(tr)
+    if len(tr_list) < period: return None, None, None
+    atr = sum(tr_list[:period])/period
+    plus_di = sum(plus_dm[:period])/period
+    minus_di = sum(minus_dm[:period])/period
+    for i in range(period, len(tr_list)):
+        atr = (atr*(period-1)+tr_list[i])/period
+        plus_di = (plus_di*(period-1)+plus_dm[i])/period
+        minus_di = (minus_di*(period-1)+minus_dm[i])/period
+    if atr == 0: return None, None, None
+    plus_di_val = round(plus_di/atr*100, 1)
+    minus_di_val = round(minus_di/atr*100, 1)
+    dx = abs(plus_di_val-minus_di_val)/(plus_di_val+minus_di_val)*100 if (plus_di_val+minus_di_val) > 0 else 0
+    return round(dx, 1), plus_di_val, minus_di_val
+
+def buy_score_stock(sym, session, nifty_returns=None):
+    """
+    Multi-factor buy scoring engine.
+    Returns a dict with score (0-100), factors, entry, SL, targets, or None on error.
+    """
+    to_date = datetime.now().strftime("%Y-%m-%d")
+    from_date = (datetime.now() - timedelta(days=200)).strftime("%Y-%m-%d")
+
+    candles, err = fetch_historical_for(session, sym, from_date, to_date)
+    if err or not candles: return None, err or f"{sym}: no data"
+    o, h, l, cl, v, ts = parse_candles(candles)
+    if len(cl) < 30: return None, f"{sym}: insufficient data ({len(cl)} days)"
+
+    ep = cl[-1]
+    factors = {}
+    score = 0
+    reasons = []
+
+    # ── 1. EMA STACK ALIGNMENT (0-20 pts) ──
+    ema9 = calc_ema_single(cl, 9)
+    ema21 = calc_ema_single(cl, 21)
+    ema50 = calc_ema_single(cl, 50) if len(cl) >= 50 else None
+    ema200 = calc_ema_single(cl, 200) if len(cl) >= 200 else None
+
+    ema_score = 0
+    ema_detail = []
+    if ema9 and ep > ema9:
+        ema_score += 5; ema_detail.append("Price > EMA9")
+    if ema9 and ema21 and ema9 > ema21:
+        ema_score += 5; ema_detail.append("EMA9 > EMA21")
+    if ema21 and ema50 and ema21 > ema50:
+        ema_score += 5; ema_detail.append("EMA21 > EMA50")
+    if ema50 and ema200 and ema50 > ema200:
+        ema_score += 5; ema_detail.append("EMA50 > EMA200")
+    score += ema_score
+    factors["emaStack"] = {"score": ema_score, "max": 20, "details": ema_detail,
+                           "ema9": round(ema9, 2) if ema9 else None,
+                           "ema21": round(ema21, 2) if ema21 else None,
+                           "ema50": round(ema50, 2) if ema50 else None,
+                           "ema200": round(ema200, 2) if ema200 else None}
+    if ema_score >= 15:
+        reasons.append("Perfect EMA stack alignment — strong uptrend")
+    elif ema_score >= 10:
+        reasons.append("Bullish EMA alignment — trend intact")
+
+    # ── 2. RSI SWEET SPOT (0-15 pts) ──
+    rsi = calc_rsi(cl)
+    rsi_score = 0
+    rsi_detail = ""
+    if rsi:
+        if 40 <= rsi <= 60:
+            rsi_score = 15; rsi_detail = f"RSI {rsi} — perfect re-entry zone"
+            reasons.append(f"RSI {rsi} in sweet spot — ideal buying zone")
+        elif 30 <= rsi < 40:
+            rsi_score = 12; rsi_detail = f"RSI {rsi} — approaching oversold, reversal likely"
+            reasons.append(f"RSI {rsi} — oversold bounce setup")
+        elif rsi < 30:
+            rsi_score = 10; rsi_detail = f"RSI {rsi} — deeply oversold"
+            reasons.append(f"RSI {rsi} — extreme oversold, contrarian buy")
+        elif 60 < rsi <= 70:
+            rsi_score = 8; rsi_detail = f"RSI {rsi} — strong momentum"
+            reasons.append(f"RSI {rsi} — bullish momentum")
+        elif rsi > 70:
+            rsi_score = 3; rsi_detail = f"RSI {rsi} — overbought, risky entry"
+        else:
+            rsi_score = 5; rsi_detail = f"RSI {rsi}"
+    score += rsi_score
+    factors["rsi"] = {"score": rsi_score, "max": 15, "value": rsi, "detail": rsi_detail}
+
+    # ── 3. MACD MOMENTUM (0-15 pts) ──
+    macd_val, macd_sig, macd_hist = calc_macd(cl)
+    macd_score = 0
+    macd_detail = []
+    if macd_val is not None and macd_sig is not None:
+        if macd_val > macd_sig:
+            macd_score += 5; macd_detail.append("MACD > Signal (bullish)")
+        if macd_hist is not None and macd_hist > 0:
+            macd_score += 5; macd_detail.append(f"Histogram positive ({macd_hist})")
+            # Check if histogram is increasing (momentum accelerating)
+            if len(cl) > 36:
+                _, _, prev_hist = calc_macd(cl[:-1])
+                if prev_hist is not None and macd_hist > prev_hist:
+                    macd_score += 5; macd_detail.append("Histogram rising — accelerating momentum")
+                    reasons.append("MACD momentum accelerating")
+        if macd_val > macd_sig and macd_hist and macd_hist > 0:
+            reasons.append("MACD bullish crossover with positive histogram")
+    score += macd_score
+    factors["macd"] = {"score": macd_score, "max": 15, "value": macd_val,
+                       "signal": macd_sig, "histogram": macd_hist, "details": macd_detail}
+
+    # ── 4. VOLUME SURGE (0-15 pts) ──
+    vol_score = 0
+    vol_detail = []
+    avg_vol_20 = sum(v[-20:])/min(len(v), 20) if v else 0
+    avg_vol_5 = sum(v[-5:])/min(len(v[-5:]), 5) if len(v) >= 5 else avg_vol_20
+    current_vol = v[-1] if v else 0
+
+    if avg_vol_20 > 0:
+        vol_ratio = current_vol / avg_vol_20
+        vol_5d_ratio = avg_vol_5 / avg_vol_20
+        if vol_ratio >= 2.0:
+            vol_score += 8; vol_detail.append(f"Today volume {round(vol_ratio, 1)}x avg — huge surge")
+            reasons.append(f"Volume surge {round(vol_ratio, 1)}x — institutional activity")
+        elif vol_ratio >= 1.5:
+            vol_score += 5; vol_detail.append(f"Today volume {round(vol_ratio, 1)}x avg")
+        elif vol_ratio >= 1.0:
+            vol_score += 3; vol_detail.append("Volume above average")
+
+        if vol_5d_ratio >= 1.5:
+            vol_score += 4; vol_detail.append(f"5-day avg volume rising ({round(vol_5d_ratio, 1)}x)")
+        elif vol_5d_ratio >= 1.2:
+            vol_score += 2; vol_detail.append("5-day volume trending up")
+
+        # Green candle with high volume = bullish
+        if cl[-1] > o[-1] and vol_ratio >= 1.3:
+            vol_score += 3; vol_detail.append("Green candle with high volume — buyers in control")
+            reasons.append("Strong buying volume on green candle")
+    vol_score = min(vol_score, 15)
+    score += vol_score
+    factors["volume"] = {"score": vol_score, "max": 15, "currentVol": current_vol,
+                         "avgVol20": round(avg_vol_20), "details": vol_detail}
+
+    # ── 5. SMART MONEY FLOW (0-15 pts) ──
+    # We'll use VWAP deviation + price position + candle pattern as proxy
+    sm_score = 0
+    sm_detail = []
+
+    # Price above VWAP proxy (using avg of last 5 closes vs last 20 closes)
+    short_avg = sum(cl[-5:])/5
+    long_avg = sum(cl[-20:])/20 if len(cl) >= 20 else short_avg
+    if long_avg > 0:
+        vwap_proxy = (ep - long_avg) / long_avg * 100
+        if vwap_proxy > 2:
+            sm_score += 5; sm_detail.append(f"Price {round(vwap_proxy, 1)}% above 20-day avg")
+        elif vwap_proxy > 0:
+            sm_score += 3; sm_detail.append("Price above 20-day average")
+
+    # Accumulation pattern: rising price with rising volume
+    if len(cl) >= 10 and len(v) >= 10:
+        price_up = cl[-1] > cl[-10]
+        vol_up = sum(v[-5:]) > sum(v[-10:-5])
+        if price_up and vol_up:
+            sm_score += 5; sm_detail.append("Accumulation pattern — rising price + rising volume")
+            reasons.append("Smart money accumulation detected")
+
+    # Higher lows pattern (bullish structure)
+    if len(l) >= 10:
+        recent_lows = [min(l[i:i+3]) for i in range(max(0,len(l)-9), len(l)-2, 3)]
+        if len(recent_lows) >= 2 and all(recent_lows[i] <= recent_lows[i+1] for i in range(len(recent_lows)-1)):
+            sm_score += 5; sm_detail.append("Higher lows pattern — bullish structure")
+            reasons.append("Higher lows forming — bullish price structure")
+
+    sm_score = min(sm_score, 15)
+    score += sm_score
+    factors["smartMoney"] = {"score": sm_score, "max": 15, "details": sm_detail}
+
+    # ── 6. PRICE ACTION (0-10 pts) ──
+    pa_score = 0
+    pa_detail = []
+
+    # Near support bounce
+    resistances, supports = calc_support_resistance(h, l, cl)
+    if supports and ep > supports[0] and (ep - supports[0]) / ep * 100 < 3:
+        pa_score += 4; pa_detail.append(f"Near support {supports[0]} — bounce zone")
+        reasons.append(f"Price bouncing off support at {supports[0]}")
+
+    # Breaking resistance / 20-day high
+    high_20 = max(h[-20:]) if len(h) >= 20 else max(h)
+    if ep >= high_20 * 0.98:
+        pa_score += 3; pa_detail.append(f"Near/at 20-day high {round(high_20, 2)} — breakout setup")
+        reasons.append(f"Breaking out near 20-day high {round(high_20, 2)}")
+
+    # Bullish candle today (close > open with decent body)
+    if cl[-1] > o[-1]:
+        body = (cl[-1] - o[-1]) / o[-1] * 100 if o[-1] > 0 else 0
+        if body > 1:
+            pa_score += 3; pa_detail.append(f"Strong green candle (+{round(body, 1)}%)")
+
+    pa_score = min(pa_score, 10)
+    score += pa_score
+    factors["priceAction"] = {"score": pa_score, "max": 10, "details": pa_detail,
+                              "supports": supports, "resistances": resistances}
+
+    # ── 7. ADX TREND STRENGTH (0-10 pts) ──
+    adx_val, plus_di, minus_di = calc_adx_full(h, l, cl)
+    adx_score = 0
+    adx_detail = ""
+    if adx_val is not None and plus_di is not None and minus_di is not None:
+        if adx_val > 25 and plus_di > minus_di:
+            adx_score = 10; adx_detail = f"ADX {adx_val} with +DI ({plus_di}) > -DI ({minus_di}) — strong bullish trend"
+            reasons.append(f"Strong trend confirmed: ADX {adx_val}")
+        elif adx_val > 20 and plus_di > minus_di:
+            adx_score = 7; adx_detail = f"ADX {adx_val} with bullish direction"
+        elif plus_di > minus_di:
+            adx_score = 4; adx_detail = f"Bullish direction (+DI > -DI) but weak trend"
+        else:
+            adx_score = 0; adx_detail = f"ADX {adx_val} — bearish or no trend"
+    score += adx_score
+    factors["adx"] = {"score": adx_score, "max": 10, "value": adx_val,
+                      "plusDI": plus_di, "minusDI": minus_di, "detail": adx_detail}
+
+    # ── BOLLINGER BAND BONUS (0-5 bonus) ──
+    bb_mid, bb_upper, bb_lower = calc_bollinger(cl)
+    if bb_lower and ep < bb_lower:
+        score += 5
+        reasons.append("Price below lower Bollinger Band — oversold bounce likely")
+    elif bb_mid and bb_lower and ep > bb_mid and ep < bb_upper:
+        score += 2  # healthy position in upper half
+
+    # ── DIVERGENCE BONUS (0-5 bonus) ──
+    divergence = detect_divergence(cl)
+    if divergence == "bullish":
+        score += 5
+        reasons.append("Bullish divergence — price making lower lows but RSI making higher lows")
+
+    # Cap at 100
+    score = min(score, 100)
+
+    # ── SIGNAL CATEGORY ──
+    if score >= 85: signal = "POWER BUY"
+    elif score >= 70: signal = "STRONG BUY"
+    elif score >= 55: signal = "BUY"
+    elif score >= 40: signal = "WATCHLIST"
+    else: signal = "AVOID"
+
+    # ── ENTRY / SL / TARGETS ──
+    atr = calc_atr(h, l, cl)
+    atr_val = atr if atr else ep * 0.02  # fallback 2%
+
+    entry = round(ep, 2)
+    stop_loss = round(ep - 1.5 * atr_val, 2)
+    target1 = round(ep + 2.0 * atr_val, 2)   # 1.3:1 R:R
+    target2 = round(ep + 3.5 * atr_val, 2)   # 2.3:1 R:R
+    target3 = round(ep + 5.0 * atr_val, 2)   # 3.3:1 R:R
+
+    risk = ep - stop_loss
+    reward1 = target1 - ep
+    rr_ratio = round(reward1 / risk, 1) if risk > 0 else 0
+
+    # ── CHANGE METRICS ──
+    chg_1d = round((ep / cl[-2] - 1) * 100, 2) if len(cl) >= 2 else 0
+    chg_1w = round((ep / cl[-6] - 1) * 100, 2) if len(cl) >= 6 else 0
+    chg_1m = round((ep / cl[-22] - 1) * 100, 2) if len(cl) >= 22 else 0
+
+    # ── VOLATILITY ──
+    volatility = calc_volatility(cl)
+
+    # ── BETA ──
+    stock_returns = calc_returns(cl)
+    beta = calc_beta(stock_returns, nifty_returns) if nifty_returns else None
+
+    return {
+        "symbol": sym,
+        "name": SYM.get(sym, {}).get("name", sym),
+        "sector": STOCK_SECTOR.get(sym, "Other"),
+        "ltp": entry,
+        "signal": signal,
+        "score": score,
+        "entry": entry,
+        "stopLoss": stop_loss,
+        "target1": target1,
+        "target2": target2,
+        "target3": target3,
+        "riskReward": rr_ratio,
+        "atr": round(atr_val, 2),
+        "rsi": rsi,
+        "macdHist": macd_hist,
+        "adx": adx_val,
+        "volatility": volatility,
+        "beta": beta,
+        "chg1d": chg_1d,
+        "chg1w": chg_1w,
+        "chg1m": chg_1m,
+        "avgVolume": round(avg_vol_20),
+        "currentVolume": current_vol,
+        "divergence": divergence,
+        "factors": factors,
+        "reasons": reasons[:6],  # top 6 reasons
+    }, None
+
+class BuyScannerHandler(Base):
+    """
+    SIGNAL BRAIN — Multi-Factor Buy Scanner
+    Scans all stocks in an index and returns buy signals sorted by score.
+    """
+    async def post(self):
+        s = self.require_session()
+        if not s: return
+        b = self.body()
+        index_name = b.get("index", "NIFTY50")
+        syms = INDICES.get(index_name, NIFTY50)
+
+        ck = f"buyscan:{s['api_key']}:{index_name}"
+        cached = cache_get(ck)
+        if cached is not None:
+            self.write_json_gzip(cached)
+            return
+
+        loop = tornado.ioloop.IOLoop.current()
+
+        # Fetch NIFTY returns for beta calculation
+        from_date = (datetime.now() - timedelta(days=200)).strftime("%Y-%m-%d")
+        to_date = datetime.now().strftime("%Y-%m-%d")
+        nifty_candles = await loop.run_in_executor(
+            pool, lambda: self._fetch_nifty_hist(s, from_date, to_date))
+        nifty_returns = []
+        if nifty_candles:
+            _, _, _, ncl, _, _ = parse_candles(nifty_candles)
+            nifty_returns = calc_returns(ncl)
+
+        results = []
+        errors = []
+
+        for i in range(0, len(syms), 5):
+            batch = syms[i:i+5]
+            futs = [loop.run_in_executor(pool, buy_score_stock, sym, s, nifty_returns)
+                    for sym in batch]
+            ress = await tornado.gen.multi(futs)
+            for r, e in ress:
+                if r: results.append(r)
+                if e: errors.append(e)
+            if i+5 < len(syms): await tornado.gen.sleep(0.1)
+
+        # Sort by score descending
+        results.sort(key=lambda x: x["score"], reverse=True)
+
+        # Stats
+        power_buys = sum(1 for r in results if r["signal"] == "POWER BUY")
+        strong_buys = sum(1 for r in results if r["signal"] == "STRONG BUY")
+        buys = sum(1 for r in results if r["signal"] == "BUY")
+        watchlist = sum(1 for r in results if r["signal"] == "WATCHLIST")
+        avoids = sum(1 for r in results if r["signal"] == "AVOID")
+        avg_score = round(sum(r["score"] for r in results) / max(len(results), 1), 1)
+
+        response = {
+            "index": index_name,
+            "count": len(results),
+            "timestamp": datetime.now().isoformat(),
+            "stats": {
+                "powerBuys": power_buys,
+                "strongBuys": strong_buys,
+                "buys": buys,
+                "watchlist": watchlist,
+                "avoids": avoids,
+                "avgScore": avg_score,
+            },
+            "signals": results,
+            "errors": errors,
+        }
+        cache_set(ck, response, CACHE_TTL_SCANNER)
+        self.write_json_gzip(response)
+
+    def _fetch_nifty_hist(self, session, from_date, to_date):
+        ck = f"hist:{session['api_key']}:NIFTY50_IDX:{from_date}:{to_date}:day"
+        cached = cache_get(ck)
+        if cached is not None: return cached
+        try:
+            r = requests.get(
+                f"{KITE}/instruments/historical/256265/day",
+                params={"from": f"{from_date} 09:15:00", "to": f"{to_date} 15:30:00"},
+                headers=kh_for(session), timeout=15)
+            r.raise_for_status()
+            candles = r.json().get("data", {}).get("candles", [])
+            if candles:
+                cache_set(ck, candles, CACHE_TTL_HISTORICAL)
+                return candles
+            return None
+        except:
+            return None
+
+
+# ═══════════════════════════════════════════════════════════
 #  APP
 # ═══════════════════════════════════════════════════════════
 _server_start = time.time()
@@ -2264,6 +2676,7 @@ def make_app():
         (r"/api/constituents", IndexConstituentsHandler),
         (r"/api/aianalysis", AIAnalysisHandler),
         (r"/api/stockdetail", StockDetailHandler),
+        (r"/api/buyscanner", BuyScannerHandler),
     ], cookie_secret=hashlib.sha256(os.urandom(32)).hexdigest(), debug=True)
 
 if __name__ == "__main__":
